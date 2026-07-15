@@ -1,6 +1,11 @@
 # UmbraOS
+# UmbraOS
 
-> Reproducible cybersecurity labs for curious learners.
+<p align="center">
+  <img src="assets/logo.png" width="300" alt="UmbraOS Logo">
+</p>
+
+> Nix-based OS built for cybersecurity learners and enthusiasts alike.
 
 UmbraOS is a Nix-based operating system built to make cybersecurity education reproducible, approachable, and hands-on.
 
