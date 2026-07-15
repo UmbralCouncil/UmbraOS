@@ -1,2 +1,4 @@
 # UmbraOS
-Nix-based OS built for cybersecurity learners
+> Nix-based OS built for cybersecurity learners and enthusiasts alike.
+
+
