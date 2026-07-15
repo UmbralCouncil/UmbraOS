@@ -1,6 +1,3 @@
-# UmbraOS
-# UmbraOS
-
 <p align="center">
   <img src="assets/logo.png" width="300" alt="UmbraOS Logo">
 </p>
