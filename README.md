@@ -30,4 +30,8 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 🚧 Early development
 
 ## Join the Family
-> https://discord.gg/f8Zxtmp9E
+[
+
+![Discord](https://discord.com/api/guilds/1527521057483784264/widget.png?style=banner2)
+
+](https://discord.gg/f8Zxtmp9E)
