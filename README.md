@@ -28,3 +28,6 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 ## Status
 
 🚧 Early development
+
+## Join the Family
+> https://discord.gg/f8Zxtmp9E
