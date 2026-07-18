@@ -27,7 +27,7 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 
 ## Status
 
-🚧 Early development
+Early development
 
 ## Join the Family
 ![Discord](https://discord.com/api/guilds/1527521057483784264/widget.png?style=banner2)
