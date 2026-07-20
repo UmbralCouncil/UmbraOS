@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://umbraos.dev/schema/images-schema.json",
+  "$comment": "Canonical source of the /etc/umbra/images.json contract. Lives in UmbraOS at schema/images-schema.json and is vendored verbatim into Umbra Studio at crates/umbra-core/schema/images-schema.json. Both copies are byte-identical; edit this file upstream in UmbraOS only and re-vendor. Both sides validate against it in CI.",
+  "title": "Umbra lab image catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "images"],
+  "properties": {
+    "schema": {
+      "const": 1,
+      "description": "Catalog schema version. Only 1 is understood."
+    },
+    "images": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/image" }
+    }
+  },
+  "$defs": {
+    "sri_sha256": {
+      "type": "string",
+      "description": "Subresource-Integrity-style SHA-256, as Nix emits it: 'sha256-' followed by standard base64 of the 32-byte digest (43 base64 chars + one '=' pad).",
+      "pattern": "^sha256-[A-Za-z0-9+/]{43}=$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "sha256", "format", "description"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "class": { "enum": ["bundled", "provisioned"] },
+        "sha256": {
+          "$ref": "#/$defs/sri_sha256",
+          "description": "Hash of the artifact at its source. For bundled: the store disk. For provisioned: the file at 'url' as downloaded — i.e. the archive itself when 'archive' is set, not the unwrapped disk."
+        },
+        "format": {
+          "enum": ["qcow2", "raw"],
+          "description": "On-disk container format of the (unwrapped) disk."
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "store_path": {
+          "type": "string",
+          "description": "Bundled only. Absolute /nix/store path of the disk."
+        },
+        "url": {
+          "type": "string",
+          "description": "Provisioned only. Vendor URL the user fetches from."
+        },
+        "install_path": {
+          "type": "string",
+          "description": "Provisioned only. Where the fetched disk is placed."
+        },
+        "license_note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provisioned only. Redistribution/licensing note shown before fetch."
+        },
+        "archive": {
+          "enum": ["zip"],
+          "description": "Provisioned only. Present iff 'url' is a wrapped archive that must be extracted to obtain the disk."
+        },
+        "extracted_sha256": {
+          "$ref": "#/$defs/sri_sha256",
+          "description": "Provisioned+archived only. Hash of the disk AFTER extraction, which the supervisor actually boots. Required iff 'archive' is set."
+        }
+      },
+      "oneOf": [
+        { "$ref": "#/$defs/bundled" },
+        { "$ref": "#/$defs/provisioned" }
+      ]
+    },
+    "bundled": {
+      "$comment": "Ships in the read-only Nix store; always present, nothing to fetch.",
+      "properties": { "class": { "const": "bundled" } },
+      "required": ["store_path"],
+      "allOf": [
+        { "not": { "required": ["url"] } },
+        { "not": { "required": ["install_path"] } },
+        { "not": { "required": ["license_note"] } },
+        { "not": { "required": ["archive"] } },
+        { "not": { "required": ["extracted_sha256"] } }
+      ]
+    },
+    "provisioned": {
+      "$comment": "Non-redistributable; fetched on user consent into install_path.",
+      "properties": { "class": { "const": "provisioned" } },
+      "required": ["url", "install_path", "license_note"],
+      "not": { "required": ["store_path"] },
+      "oneOf": [
+        {
+          "$comment": "Direct: 'url' is the bare disk. Verify download, then rename.",
+          "allOf": [
+            { "not": { "required": ["archive"] } },
+            { "not": { "required": ["extracted_sha256"] } }
+          ]
+        },
+        {
+          "$comment": "Archived: 'url' is wrapped. Verify archive (sha256), extract, verify disk (extracted_sha256), rename.",
+          "required": ["archive", "extracted_sha256"]
+        }
+      ]
+    }
+  }
+}
