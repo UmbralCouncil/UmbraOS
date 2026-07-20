@@ -71,9 +71,13 @@ in
     gptfdisk
   ];
 
-  # ISO identity.
-  isoImage.isoName = lib.mkForce
-    "UmbraOS-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}.iso";
+  # ISO identity. Name the image via the modern `image.baseName` rather than the
+  # deprecated `isoImage.isoName`: that alias now only feeds `image.fileName`,
+  # while the actual on-disk filename (and `image.filePath`) derive from
+  # `image.baseName` — setting `isoName` alone desyncs the advertised path from
+  # the real file. `baseName` is extension-less; `.iso` is appended downstream.
+  image.baseName = lib.mkForce
+    "UmbraOS-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}";
   isoImage.volumeID = lib.mkForce "UMBRAOS";
   isoImage.edition = "umbra";
   isoImage.appendToMenuLabel = " UmbraOS Live";

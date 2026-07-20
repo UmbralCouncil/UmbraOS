@@ -1,6 +1,6 @@
 # Make sure to add this to your bookmarks: https://search.nixos.org/options
 # This is where common options are set so you don't have to repeat yourself across files
-{ settings, inputs, system, ... }: {
+{ settings, inputs, system, lib, ... }: {
   # Use Lix from nixpkgs rather than the lix-module's own pinned 2.92 source
   # build: that source sets `separateDebugInfo` together with
   # `disallowedReferences` but without `__structuredAttrs`, which nixpkgs
@@ -22,7 +22,10 @@
   users.users.${settings.account.name} = {
     isNormalUser = true;
     extraGroups = [ "networkmanager" "wheel" ];
-    hashedPassword = "<hashed_password>";
+    # Default login password is "umbra" (SHA-512 crypt). Change this before any
+    # non-lab deployment — it is a well-known default, like other security
+    # distros ship.
+    hashedPassword = "$6$89mU305uYn2drBI4$8JuEj/ky8FJRlxzCs8Orb05i6rswJIxNaiNdg21o51s7qrO9VMF4/j8bWhvAnD.xDEiEYiBIe7VGHYquhEx42/";
   };
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
@@ -32,6 +35,13 @@
 
   /* Compressed memory */
   services.zram-generator.enable = true;
+
+  /* Filesystems — UmbraOS targets Btrfs. Btrfs is already in the default
+     supportedFilesystems set; ZFS is only pulled in by the NixOS installer CD
+     base (nixpkgs profiles/base.nix sets `zfs = mkDefault true`), which drags in
+     the ZFS kernel modules and the boot.zfs.forceImportRoot warning. We don't
+     use ZFS, so drop it here for every host. */
+  boot.supportedFilesystems.zfs = lib.mkForce false;
 
   /* Network */
   networking.firewall.enable = true;
