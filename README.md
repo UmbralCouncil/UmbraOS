@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="300" alt="UmbraOS Logo">
+  <img src="assets/Untitled3_20260716000247.png" width="300" alt="UmbraOS Logo">
 </p>
 
 > Nix-based OS built for cybersecurity learners and enthusiasts alike.
