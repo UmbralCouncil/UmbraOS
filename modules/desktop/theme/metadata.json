@@ -1,0 +1,17 @@
+{
+  "KPackageStructure": "Plasma/LookAndFeel",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "The Umbra Project"
+      }
+    ],
+    "Category": "UmbraOS",
+    "Description": "The default UmbraOS desktop experience",
+    "Id": "dev.umbraos.desktop",
+    "License": "GPL-3.0-or-later",
+    "Name": "UmbraOS",
+    "Version": "0.1.0",
+    "Website": "https://github.com/7apt/UmbraOS"
+  }
+}
