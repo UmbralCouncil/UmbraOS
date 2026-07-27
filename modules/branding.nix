@@ -11,7 +11,7 @@
     BUG_REPORT_URL="https://github.com/7apt/UmbraOS"
     VENDOR_NAME="UmbraOS"
     VENDOR_URL="https://github.com/7apt/UmbraOS"
-    LOGO="nix-snowflake"
+    LOGO="umbraos"
     HOME_URL="https://github.com/7apt/UmbraOS"
     DOCUMENTATION_URL="https://github.com/7apt/UmbraOS"
     SUPPORT_URL="https://github.com/7apt/UmbraOS"

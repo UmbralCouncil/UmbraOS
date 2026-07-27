@@ -49,6 +49,14 @@ in
     user = "nixos";
   };
 
+  # The live desktop uses nixpkgs' `nixos` installer account rather than the
+  # normal UmbraOS account configured in compose.nix.
+  home-manager.users.nixos = {
+    imports = [ ../../modules/desktop/home-rice.nix ];
+    programs.home-manager.enable = true;
+    home.stateVersion = "25.05";
+  };
+
   # Ship the flake on the ISO (read-only at /UmbraOS) and drop a writable copy
   # in the live user's home so `umbra-install` / `nixos-install --flake` works.
   isoImage.contents = [

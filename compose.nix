@@ -1,6 +1,11 @@
 # Make sure to add this to your bookmarks: https://search.nixos.org/options
 # This is where common options are set so you don't have to repeat yourself across files
 { settings, inputs, system, lib, ... }: {
+  imports = [
+    ./modules/branding.nix
+    ./modules/desktop/rice.nix
+  ];
+
   nixpkgs.hostPlatform = system;
 
   networking.hostName = "nixos";
@@ -8,6 +13,7 @@
   time.timeZone = settings.timeZone;
 
   home-manager.users.${settings.account.name} = {
+    imports = [ ./modules/desktop/home-rice.nix ];
     programs.home-manager.enable = true;
     home.stateVersion = "25.05";
   };
