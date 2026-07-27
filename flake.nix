@@ -92,7 +92,10 @@
     # flake on multiple devices or for different purposes
 
     nixosConfigurations.default = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = { inherit inputs system settings unstable; };
+      specialArgs = {
+        inherit inputs system settings unstable;
+        isLive = false;
+      };
       modules = [
         inputs.home-manager.nixosModules.home-manager
         ./profile/default/hardware.nix
@@ -101,7 +104,10 @@
       ];
     };
     nixosConfigurations.dev = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = { inherit inputs system settings unstable; };
+      specialArgs = {
+        inherit inputs system settings unstable;
+        isLive = false;
+      };
       modules = [
         inputs.home-manager.nixosModules.home-manager
         ./profile/default/hardware.nix
@@ -111,7 +117,10 @@
       ];
     };
     nixosConfigurations.umbra-live = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = { inherit inputs system settings unstable; };
+      specialArgs = {
+        inherit inputs system settings unstable;
+        isLive = true;
+      };
       modules = [
         inputs.home-manager.nixosModules.home-manager
         ./profile/iso/hardware.nix

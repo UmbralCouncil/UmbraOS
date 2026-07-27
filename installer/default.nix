@@ -3,7 +3,7 @@ let
   runtimePath = pkgs.lib.makeBinPath [
     pkgs.bash pkgs.busybox pkgs.coreutils pkgs.curl pkgs.dosfstools pkgs.gawk
     pkgs.gnugrep pkgs.gnused pkgs.jq pkgs.nix pkgs.nixos-install-tools
-    pkgs.parted pkgs.systemd pkgs.util-linux pkgs.whois pkgs.btrfs-progs
+    pkgs.parted pkgs.socat pkgs.systemd pkgs.util-linux pkgs.whois pkgs.btrfs-progs
   ];
 in
 pkgs.runCommand "umbra-installer-0.1.0" { } ''
@@ -15,13 +15,18 @@ pkgs.runCommand "umbra-installer-0.1.0" { } ''
   cp ${../assets/logo.png} "$out/libexec/umbra-installer/logo.png"
   cp ${../assets/install.png} \
     "$out/share/icons/hicolor/256x256/apps/umbra-installer.png"
-  substitute ${./backend.sh} "$out/libexec/umbra-installer/cgi-bin/api" \
+  substitute ${./backend.sh} "$out/libexec/umbra-installer/backend" \
     --replace-fail @PATH@ '${runtimePath}' \
-    --replace-fail @WEBROOT@ "$out/libexec/umbra-installer" \
     --replace-fail @UMBRA_SOURCE@ '${source}'
+  chmod +x "$out/libexec/umbra-installer/backend"
+  substitute ${./bridge.sh} "$out/libexec/umbra-installer/cgi-bin/api" \
+    --replace-fail @PATH@ '${runtimePath}' \
+    --replace-fail @SOCKET@ /run/umbra-installer/backend.sock
   chmod +x "$out/libexec/umbra-installer/cgi-bin/api"
   substitute ${./launch.sh} "$out/bin/umbra-installer" \
-    --replace-fail @BACKEND@ "$out/libexec/umbra-installer/cgi-bin/api" \
+    --replace-fail @BACKEND@ "$out/libexec/umbra-installer/backend" \
+    --replace-fail @BUSYBOX@ '${pkgs.busybox}/bin/busybox' \
+    --replace-fail @WEBROOT@ "$out/libexec/umbra-installer" \
     --replace-fail @FIREFOX@ '${pkgs.firefox}/bin/firefox'
   chmod +x "$out/bin/umbra-installer"
   cat > "$out/share/applications/umbra-installer.desktop" <<EOF

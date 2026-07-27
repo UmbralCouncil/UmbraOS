@@ -80,6 +80,9 @@ in
     # the installer's broad availableKernelModules set so real Hyper-V devices
     # still autoload normally; do not force-load guest integration everywhere.
     virtualisation.hypervGuest.enable = lib.mkForce false;
+    # Likewise, XenServer guest utilities are enabled by the generic graphical
+    # live profile but fail noisily on physical machines.
+    services.xe-guest-utilities.enable = lib.mkForce false;
 
     # --- Audio (the non-conflicting half of ../desktop/plasma.nix) ------------
     security.rtkit.enable = true;

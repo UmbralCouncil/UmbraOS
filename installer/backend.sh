@@ -2,27 +2,72 @@
 set -euo pipefail
 
 PATH="@PATH@"
-WEBROOT="@WEBROOT@"
 UMBRA_SOURCE="@UMBRA_SOURCE@"
-PORT=43110
 
 json_error() {
   printf 'Status: 400 Bad Request\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1"
   exit 0
 }
 
-device_type() { lsblk -dnro TYPE -- "$1" 2>/dev/null || true; }
-is_mounted() { findmnt -rnS "$1" >/dev/null 2>&1; }
-tree_is_mounted() { lsblk -nrpo MOUNTPOINTS -- "$1" | grep -q '[^[:space:]]'; }
+device_type() {
+  lsblk -dnro TYPE -- "$1" 2>/dev/null || true;
+}
+
+is_mounted() {
+  findmnt -rnS "$1" >/dev/null 2>&1;
+}
+
+tree_is_mounted() {
+  lsblk -nrpo MOUNTPOINTS -- "$1" | grep -q '[^[:space:]]';
+}
+
+root_disk() {
+  resolved="$(readlink -f "$1" 2>/dev/null || true)"
+  [ -n "$resolved" ] || return 1
+  lsblk -s -nrpo NAME -- "$resolved" | tail -n 1
+}
+
+live_disk() {
+  source="$(findmnt -nro SOURCE /iso 2>/dev/null || true)"
+  [ -n "$source" ] && root_disk "$source"
+}
+
+reject_live_device() {
+  candidate="$(root_disk "$1" 2>/dev/null || true)"
+  live="$(live_disk 2>/dev/null || true)"
+  [ -z "$live" ] || [ "$candidate" != "$live" ] ||
+    json_error "refusing to modify the disk backing the live UmbraOS session ($live)"
+}
 
 serve() {
-  export UMBRA_INSTALLER_TOKEN="$1"
-  exec busybox httpd -f -p "127.0.0.1:$PORT" -h "$WEBROOT"
+  socket="$1"
+  export UMBRA_INSTALLER_TOKEN="$2"
+  install -d -m 0750 -o root -g users "$(dirname "$socket")"
+  rm -f "$socket"
+  cleanup_socket() { rm -f "$socket"; }
+  trap cleanup_socket EXIT INT TERM
+  # The privileged process has no TCP listener. Only the live `nixos` user can
+  # connect to this Unix socket; each accepted request still executes as root.
+  socat "UNIX-LISTEN:$socket,fork,mode=0600,user=nixos,group=users" \
+    "EXEC:$0 rpc"
+}
+
+rpc() {
+  request="$(head -c 1048576)"
+  token="$(jq -r '.token // empty' <<<"$request")"
+  action="$(jq -r '.action // empty' <<<"$request")"
+  method="$(jq -r '.method // "GET"' <<<"$request")"
+  body="$(jq -c '.body // {}' <<<"$request")"
+  export HTTP_X_UMBRA_TOKEN="$token"
+  export QUERY_STRING="action=$action"
+  export REQUEST_METHOD="$method"
+  export CONTENT_LENGTH="${#body}"
+  printf '%s' "$body" | cgi
 }
 
 cgi() {
   exec 2>>/tmp/umbra-installer.log
-  printf '\n[%s] request %s\n' "$(date --iso-8601=seconds)" "${QUERY_STRING:-}" >&2
+  printf '\n[%s] request %s\n' "$(date -Iseconds)" "${QUERY_STRING:-}" >&2
   trap 'cgi_failure "$LINENO" "$BASH_COMMAND" "$?"' ERR
   [ "${HTTP_X_UMBRA_TOKEN:-}" = "${UMBRA_INSTALLER_TOKEN:-}" ] ||
     json_error "invalid installer token"
@@ -31,7 +76,9 @@ cgi() {
     disks)
       printf 'Content-Type: application/json\r\n'
       printf 'Cache-Control: no-store\r\n\r\n'
-      lsblk -J -b -o NAME,PATH,TYPE,SIZE,MODEL,FSTYPE,LABEL,PARTTYPE,MOUNTPOINTS
+      devices="$(lsblk -J -b -o NAME,PATH,TYPE,SIZE,MODEL,FSTYPE,LABEL,PARTTYPE,MOUNTPOINTS)"
+      jq --arg live_disk "$(live_disk 2>/dev/null || true)" \
+        '. + {umbra_live_disk: $live_disk}' <<<"$devices"
       ;;
     install)
       [ "${REQUEST_METHOD:-}" = POST ] || json_error "POST required"
@@ -75,6 +122,7 @@ install_system() {
   if [ "$mode" = erase ]; then
     disk="$(jq -r '.disk // empty' <<<"$body")"
     [ "$(device_type "$disk")" = disk ] || json_error "target is not a disk"
+    reject_live_device "$disk"
     [ "$confirmation" = "ERASE $disk" ] || json_error "confirmation mismatch"
     ! tree_is_mounted "$disk" || json_error "target disk or one of its partitions is mounted"
     printf 'partitioning whole disk %s\n' "$disk" >&2
@@ -96,6 +144,8 @@ install_system() {
     esp="$(jq -r '.esp // empty' <<<"$body")"
     [ "$(device_type "$root")" = part ] || json_error "root target is not a partition"
     [ "$(device_type "$esp")" = part ] || json_error "EFI target is not a partition"
+    reject_live_device "$root"
+    reject_live_device "$esp"
     [ "$root" != "$esp" ] || json_error "root and EFI partitions must differ"
     [ "$confirmation" = "FORMAT $root" ] || json_error "confirmation mismatch"
     ! is_mounted "$root" || json_error "root partition is mounted"
@@ -108,7 +158,9 @@ install_system() {
 
   cleanup() { umount -R /mnt 2>/dev/null || true; }
   trap cleanup EXIT
-  mkfs.btrfs -f -L UMBRAOS "$root"
+  # Never reuse the live ISO's volume ID here. The initrd locates installation
+  # media by label; duplicate labels make udev selection nondeterministic.
+  mkfs.btrfs -f -L UMBRA_ROOT "$root"
   printf 'mounting target filesystems\n' >&2
   mount "$root" /mnt
   mkdir -p /mnt/boot /mnt/etc
@@ -145,7 +197,8 @@ EOF
 }
 
 case "${1:-${GATEWAY_INTERFACE:+cgi}}" in
-  serve) serve "$2" ;;
+  serve) serve "$2" "$3" ;;
+  rpc) rpc ;;
   cgi) cgi ;;
-  *) echo "usage: $0 serve TOKEN|cgi" >&2; exit 2 ;;
+  *) echo "usage: $0 serve SOCKET TOKEN|rpc|cgi" >&2; exit 2 ;;
 esac

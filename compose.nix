@@ -1,31 +1,31 @@
 # Make sure to add this to your bookmarks: https://search.nixos.org/options
 # This is where common options are set so you don't have to repeat yourself across files
-{ settings, inputs, system, lib, ... }: {
+{ settings, inputs, system, lib, isLive ? false, ... }: {
   imports = [
     ./modules/branding.nix
     ./modules/desktop/rice.nix
-  ];
+  ] ++ lib.optional (!isLive) {
+    home-manager.users.${settings.account.name} = {
+      imports = [ ./modules/desktop/home-rice.nix ];
+      programs.home-manager.enable = true;
+      home.stateVersion = "25.05";
+    };
+
+    users.users.${settings.account.name} = {
+      isNormalUser = true;
+      extraGroups = [ "networkmanager" "wheel" ];
+      # Default login password is "umbra" (SHA-512 crypt). Change this before
+      # any non-lab deployment — it is a well-known default, like other
+      # security distros ship.
+      hashedPassword = settings.account.hashedPassword;
+    };
+  };
 
   nixpkgs.hostPlatform = system;
 
   networking.hostName = settings.hostName;
   system.stateVersion = "25.05";
   time.timeZone = settings.timeZone;
-
-  home-manager.users.${settings.account.name} = {
-    imports = [ ./modules/desktop/home-rice.nix ];
-    programs.home-manager.enable = true;
-    home.stateVersion = "25.05";
-  };
-
-  users.users.${settings.account.name} = {
-    isNormalUser = true;
-    extraGroups = [ "networkmanager" "wheel" ];
-    # Default login password is "umbra" (SHA-512 crypt). Change this before any
-    # non-lab deployment — it is a well-known default, like other security
-    # distros ship.
-    hashedPassword = settings.account.hashedPassword;
-  };
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.settings.trusted-users = [ "@wheel" ];

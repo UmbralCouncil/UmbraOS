@@ -1,9 +1,9 @@
 { inputs, pkgs, lib, config, ... }:
 let
-  # Home Manager remains the source of the desktop files, but a live account
-  # must not depend on its activation service winning a race with auto-login.
-  # tmpfiles links the same immutable generation into /home/nixos before the
-  # graphical session starts.
+  # Home Manager is used only to build the immutable desktop-file generation.
+  # The live account does not run Home Manager activation: that activation
+  # expects a persistent, writable Nix profile, which an ephemeral ISO user
+  # deliberately does not have. tmpfiles installs the generation before login.
   riceHome = config.home-manager.users.nixos.home.activationPackage;
   umbraInstaller = import ../../installer {
     inherit pkgs;
@@ -47,6 +47,11 @@ in
     programs.home-manager.enable = true;
     home.stateVersion = "25.05";
   };
+
+  # The activation package above is a build-time source for `riceHome`.
+  # Applying it through the normal Home Manager system service would attempt
+  # to create a mutable per-user Nix profile on the read-only live system.
+  systemd.services.home-manager-nixos.enable = false;
 
   systemd.tmpfiles.rules = [
     "d /home/nixos/.config 0755 nixos users - -"
@@ -95,7 +100,9 @@ in
   # the real file. `baseName` is extension-less; `.iso` is appended downstream.
   image.baseName = lib.mkForce
     "UmbraOS-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}";
-  isoImage.volumeID = lib.mkForce "UMBRAOS";
+  # This label is the initrd's live-media locator. It must remain distinct
+  # from every label the installer writes to target disks.
+  isoImage.volumeID = lib.mkForce "UMBRALIVE";
   isoImage.edition = "umbra";
   isoImage.appendToMenuLabel = " UmbraOS Live";
 }
