@@ -21,9 +21,10 @@ let
 in
 {
   imports = [
-    # nixpkgs graphical Plasma 6 installer base (KDE + plasma-login-manager +
-    # Calamares + autologin as `nixos`).
-    "${modulesPath}/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
+    # NixOS graphical live base. Umbra supplies Plasma and its own installer;
+    # importing the Calamares profile here would ship and auto-start a second,
+    # unrelated installer.
+    "${modulesPath}/installer/cd-dvd/installation-cd-graphical-base.nix"
     # umbra microVM host, so the live session can run labs out of the box.
     ../virt/core.nix
   ];
@@ -54,6 +55,15 @@ in
     # --- ISO compression ------------------------------------------------------
     # (isoName / volumeID stay owned by profile/iso/configuration.nix.)
     isoImage.squashfsCompression = "zstd -Xcompression-level 15";
+
+    # --- Live desktop ---------------------------------------------------------
+    services.desktopManager.plasma6 = {
+      enable = true;
+      enableQt5Integration = false;
+    };
+    services.displayManager.plasma-login-manager.enable = true;
+    environment.plasma6.excludePackages = [ pkgs.kdePackages.plasma-workspace-wallpapers ];
+    programs.kde-pim.enable = false;
 
     # --- Networking: iwd ------------------------------------------------------
     # Wi-Fi via iwd. NetworkManager (from compose.nix) drives it through the iwd

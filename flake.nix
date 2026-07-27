@@ -11,13 +11,24 @@
     };
   };
   outputs = inputs@{ ... }: let
-    settings = {
+    baseSettings = {
       timeZone = "America/Chicago";        # Set your timezone
-      account.name = "Umbra";               # Set your name
+      hostName = "umbra";
+      account = {
+        name = "Umbra";
+        hashedPassword = "$6$89mU305uYn2drBI4$8JuEj/ky8FJRlxzCs8Orb05i6rswJIxNaiNdg21o51s7qrO9VMF4/j8bWhvAnD.xDEiEYiBIe7VGHYquhEx42/";
+      };
       /* We can set variables here and use them elsewhere. */
       /* Example: */
       /* myVar = "value"; */
     };
+    # The graphical installer writes this file only into the target's private
+    # flake copy. Normal source builds remain fully deterministic.
+    installSettings =
+      if builtins.pathExists ./installer-settings.nix
+      then import ./installer-settings.nix
+      else { };
+    settings = inputs.nixpkgs.lib.recursiveUpdate baseSettings installSettings;
     system = "x86_64-linux";               # System architecture
 
     # Instantiate the unstable package set for this system so modules can
@@ -55,6 +66,13 @@
 
     # --- Buildable artifacts -------------------------------------------------
     packages.${system} = {
+      # The local HTML/CSS/JS installer and its constrained Bash backend.
+      # Useful as a standalone artifact for UI/backend testing.
+      installer = import ./installer {
+        inherit pkgs;
+        source = inputs.self;
+      };
+
       # The bootable UmbraOS live ISO. Built through the images framework
       # (config.system.build.images.iso) — the same path `nixos-rebuild
       # build-image` takes, so no nixos-generators is needed. This is heavy and

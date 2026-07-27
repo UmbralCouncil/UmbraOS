@@ -8,7 +8,7 @@
 
   nixpkgs.hostPlatform = system;
 
-  networking.hostName = "nixos";
+  networking.hostName = settings.hostName;
   system.stateVersion = "25.05";
   time.timeZone = settings.timeZone;
 
@@ -24,7 +24,7 @@
     # Default login password is "umbra" (SHA-512 crypt). Change this before any
     # non-lab deployment — it is a well-known default, like other security
     # distros ship.
-    hashedPassword = "$6$89mU305uYn2drBI4$8JuEj/ky8FJRlxzCs8Orb05i6rswJIxNaiNdg21o51s7qrO9VMF4/j8bWhvAnD.xDEiEYiBIe7VGHYquhEx42/";
+    hashedPassword = settings.account.hashedPassword;
   };
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];

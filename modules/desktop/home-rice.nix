@@ -1,7 +1,26 @@
 { config, lib, pkgs, ... }:
 let
   wallpaper = ../../assets/home_wallpaper.png;
+  applicationButton = ../../assets/darkmode_application_button.svg;
   umbraPlasmaTheme = import ./theme-package.nix { inherit pkgs; };
+  plasmaDefaults = ''
+    const wallpaper = "file://${toString wallpaper}";
+    const launcherIcon = "file://${toString applicationButton}";
+    desktops().forEach((desktop) => {
+      desktop.wallpaperPlugin = "org.kde.image";
+      desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
+      desktop.writeConfig("Image", wallpaper);
+    });
+    panels().forEach((panel) => {
+      panel.widgets().forEach((widget) => {
+        if (["org.kde.plasma.kickoff", "org.kde.plasma.kicker",
+             "org.kde.plasma.kickerdash"].includes(widget.type)) {
+          widget.currentConfigGroup = ["General"];
+          widget.writeConfig("icon", launcherIcon);
+        }
+      });
+    });
+  '';
 in
 {
   # User-visible copies make the supplied artwork discoverable in Plasma's
@@ -156,14 +175,15 @@ in
     SingleClick=false
   '';
 
-  # Plasma's wallpaper command needs a running desktop session. Apply it once
-  # on login, then leave subsequent user customization alone.
+  # Plasma's runtime containment and panel IDs are generated per user, so set
+  # the wallpaper and launcher icon through the supported scripting API once
+  # the shell is running. Leave subsequent user customization alone.
   home.file.".local/bin/umbra-apply-rice" = {
     executable = true;
     text = ''
       #!${pkgs.runtimeShell}
       set -eu
-      marker="$HOME/.config/umbra/rice-v1"
+      marker="$HOME/.config/umbra/rice-v2"
       if [ -e "$marker" ]; then
         exit 0
       fi
@@ -172,6 +192,18 @@ in
         --apply dev.umbraos.desktop
       ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-wallpaperimage \
         ${lib.escapeShellArg (toString wallpaper)}
+      applied=
+      for _ in $(${pkgs.coreutils}/bin/seq 1 20); do
+        if ${pkgs.kdePackages.qttools}/bin/qdbus \
+          org.kde.plasmashell /PlasmaShell \
+          org.kde.PlasmaShell.evaluateScript \
+          ${lib.escapeShellArg plasmaDefaults}; then
+          applied=1
+          break
+        fi
+        ${pkgs.coreutils}/bin/sleep .5
+      done
+      [ "$applied" = 1 ]
       ${pkgs.coreutils}/bin/touch "$marker"
     '';
   };

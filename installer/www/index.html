@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Install UmbraOS</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <img src="logo.png" alt="">
+      <div><span class="eyebrow">UMBRA PROJECT</span><h1>Install UmbraOS</h1></div>
+      <span id="stepLabel" class="step-label">1 / 4</span>
+    </header>
+
+    <section class="panel active" data-step="0">
+      <p class="kicker">A clean, reproducible installation</p>
+      <h2>Choose how UmbraOS uses your disk.</h2>
+      <div class="choices">
+        <button class="choice selected" data-mode="erase">
+          <b>Use an entire disk</b><span>Erase one selected disk and create an EFI + Btrfs layout.</span>
+        </button>
+        <button class="choice" data-mode="manual">
+          <b>Manual / dual boot</b><span>Assign a prepared Linux partition and reuse an EFI System Partition.</span>
+        </button>
+      </div>
+      <div class="notice">Dual boot never resizes an existing OS automatically. Prepare free space with KDE Partition Manager first.</div>
+    </section>
+
+    <section class="panel" data-step="1">
+      <p class="kicker">Storage</p><h2>Select the installation target.</h2>
+      <div id="storageFields"></div>
+      <button id="refresh" class="secondary">Refresh devices</button>
+    </section>
+
+    <section class="panel" data-step="2">
+      <p class="kicker">Identity</p><h2>Make this system yours.</h2>
+      <div class="form-grid">
+        <label>Username<input id="username" value="umbra" pattern="[a-z_][a-z0-9_-]*"></label>
+        <label>Hostname<input id="hostname" value="umbra"></label>
+        <label>Time zone<input id="timezone" value="America/New_York"></label>
+        <label>Password<input id="password" type="password"></label>
+        <label>Confirm password<input id="password2" type="password"></label>
+      </div>
+    </section>
+
+    <section class="panel" data-step="3">
+      <p class="kicker">Review</p><h2>This is the point of no return.</h2>
+      <div id="summary" class="summary"></div>
+      <label>Type <code id="confirmationText"></code> to confirm
+        <input id="confirmation" autocomplete="off">
+      </label>
+      <div id="progress" class="progress hidden"><div></div></div>
+      <pre id="result" class="hidden"></pre>
+    </section>
+
+    <footer>
+      <button id="back" class="secondary" disabled>Back</button>
+      <button id="next">Continue</button>
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

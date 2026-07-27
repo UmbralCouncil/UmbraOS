@@ -16,6 +16,7 @@ in
       ../../assets/darkmode_application_button.svg;
     "umbra/artwork/application-button-light.svg".source =
       ../../assets/lightmode_application_button.svg;
+    "umbra/artwork/install.png".source = ../../assets/install.png;
   };
 
   # Limine is used by installed UmbraOS systems. The ISO has its own boot path
@@ -32,9 +33,13 @@ in
     };
   };
 
-  # Plasma's shared desktop module enables Plymouth; replace its generic mark
-  # with the same Umbra identity used by the desktop and os-release.
-  boot.plymouth.logo = ../../assets/logo.png;
+  # `bgrt` prefers firmware artwork and can therefore hide the configured
+  # distro logo entirely. Breeze Plymouth is built with this logo and always
+  # renders the Umbra splash during boot.
+  boot.plymouth = {
+    theme = "breeze";
+    logo = ../../assets/logo.png;
+  };
 
   # Let desktop shells and About dialogs resolve UmbraOS's own mark through
   # the standard freedesktop icon name advertised by os-release.
