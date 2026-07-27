@@ -1,5 +1,10 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
+let
+  umbraPlasmaTheme = import ./theme-package.nix { inherit pkgs; };
+in
 {
+  environment.systemPackages = [ umbraPlasmaTheme ];
+
   # Keep the artwork in the system closure so boot and desktop components can
   # refer to the same immutable files.
   environment.etc = {

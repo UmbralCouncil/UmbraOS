@@ -1,6 +1,7 @@
 { config, lib, pkgs, ... }:
 let
   wallpaper = ../../assets/home_wallpaper.png;
+  umbraPlasmaTheme = import ./theme-package.nix { inherit pkgs; };
 in
 {
   # User-visible copies make the supplied artwork discoverable in Plasma's
@@ -151,7 +152,7 @@ in
     Theme=breeze-dark
 
     [KDE]
-    LookAndFeelPackage=org.kde.breezedark.desktop
+    LookAndFeelPackage=dev.umbraos.desktop
     SingleClick=false
   '';
 
@@ -161,16 +162,21 @@ in
     executable = true;
     text = ''
       #!${pkgs.runtimeShell}
+      set -eu
       marker="$HOME/.config/umbra/rice-v1"
       if [ -e "$marker" ]; then
         exit 0
       fi
       ${pkgs.coreutils}/bin/mkdir -p "$HOME/.config/umbra"
+      ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-lookandfeel \
+        --apply dev.umbraos.desktop
       ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-wallpaperimage \
         ${lib.escapeShellArg (toString wallpaper)}
       ${pkgs.coreutils}/bin/touch "$marker"
     '';
   };
+
+  home.packages = [ umbraPlasmaTheme ];
 
   xdg.configFile."autostart/umbra-rice.desktop".text = ''
     [Desktop Entry]

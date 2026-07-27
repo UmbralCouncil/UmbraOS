@@ -61,6 +61,16 @@ in
     networking.wireless.iwd.enable = true;
     networking.networkmanager.wifi.backend = "iwd";
 
+    # --- Portable live-media boot ---------------------------------------------
+    # The graphical installer profile enables Hyper-V guest integration by
+    # default. That module force-loads the hv_* stack from the initrd while
+    # udev is probing hardware in parallel. On ordinary physical machines this
+    # can make systemd-modules-load fail with ENODEV/EBUSY and, because this is
+    # the initrd, drop the live image into emergency mode. Keep the drivers in
+    # the installer's broad availableKernelModules set so real Hyper-V devices
+    # still autoload normally; do not force-load guest integration everywhere.
+    virtualisation.hypervGuest.enable = lib.mkForce false;
+
     # --- Audio (the non-conflicting half of ../desktop/plasma.nix) ------------
     security.rtkit.enable = true;
     services.pipewire = {

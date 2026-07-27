@@ -3,6 +3,11 @@ let
   # The UmbraOS flake source itself, so it can be shipped on the ISO and
   # installed from the live session.
   flakeSrc = inputs.self;
+  # Home Manager remains the source of the desktop files, but a live account
+  # must not depend on its activation service winning a race with auto-login.
+  # tmpfiles links the same immutable generation into /home/nixos before the
+  # graphical session starts.
+  riceHome = config.home-manager.users.nixos.home.activationPackage;
 
   # Helper that installs UmbraOS from the copy of the flake on the ISO.
   umbra-install = pkgs.writeShellScriptBin "umbra-install" ''
@@ -56,6 +61,28 @@ in
     programs.home-manager.enable = true;
     home.stateVersion = "25.05";
   };
+
+  systemd.tmpfiles.rules = [
+    "d /home/nixos/.config 0755 nixos users - -"
+    "d /home/nixos/.config/autostart 0755 nixos users - -"
+    "d /home/nixos/.local/bin 0755 nixos users - -"
+    "d /home/nixos/.local/share/color-schemes 0755 nixos users - -"
+    "d /home/nixos/.local/share/icons/hicolor/scalable/apps 0755 nixos users - -"
+    "d /home/nixos/.local/share/icons/hicolor/scalable/places 0755 nixos users - -"
+    "d /home/nixos/.local/share/icons/hicolor/256x256/apps 0755 nixos users - -"
+    "d /home/nixos/.local/share/wallpapers/UmbraOS/contents/images 0755 nixos users - -"
+    "L+ /home/nixos/.config/kdeglobals - nixos users - ${riceHome}/home-files/.config/kdeglobals"
+    "L+ /home/nixos/.config/autostart/umbra-rice.desktop - nixos users - ${riceHome}/home-files/.config/autostart/umbra-rice.desktop"
+    "L+ /home/nixos/.local/bin/umbra-apply-rice - nixos users - ${riceHome}/home-files/.local/bin/umbra-apply-rice"
+    "L+ /home/nixos/.local/share/color-schemes/UmbraDark.colors - nixos users - ${riceHome}/home-files/.local/share/color-schemes/UmbraDark.colors"
+    "L+ /home/nixos/.local/share/color-schemes/UmbraLight.colors - nixos users - ${riceHome}/home-files/.local/share/color-schemes/UmbraLight.colors"
+    "L+ /home/nixos/.local/share/icons/hicolor/256x256/apps/umbraos.png - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/256x256/apps/umbraos.png"
+    "L+ /home/nixos/.local/share/icons/hicolor/scalable/apps/umbra-application-dark.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/apps/umbra-application-dark.svg"
+    "L+ /home/nixos/.local/share/icons/hicolor/scalable/apps/umbra-application-light.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/apps/umbra-application-light.svg"
+    "L+ /home/nixos/.local/share/icons/hicolor/scalable/places/start-here.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/places/start-here.svg"
+    "L+ /home/nixos/.local/share/icons/hicolor/scalable/places/start-here-kde-symbolic.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/places/start-here-kde-symbolic.svg"
+    "L+ /home/nixos/.local/share/wallpapers/UmbraOS/contents/images/2560x1600.png - nixos users - ${riceHome}/home-files/.local/share/wallpapers/UmbraOS/contents/images/2560x1600.png"
+  ];
 
   # Ship the flake on the ISO (read-only at /UmbraOS) and drop a writable copy
   # in the live user's home so `umbra-install` / `nixos-install --flake` works.
