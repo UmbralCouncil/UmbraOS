@@ -5,10 +5,6 @@
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    lix-module = {
-      url = "git+https://git.lix.systems/lix-project/nixos-module?ref=stable";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     microvm = {
       url = "github:astro/microvm.nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -83,6 +79,16 @@
         inputs.home-manager.nixosModules.home-manager
         ./profile/default/hardware.nix
         ./profile/default/configuration.nix
+        ./compose.nix
+      ];
+    };
+    nixosConfigurations.dev = inputs.nixpkgs.lib.nixosSystem {
+      specialArgs = { inherit inputs system settings unstable; };
+      modules = [
+        inputs.home-manager.nixosModules.home-manager
+        ./profile/default/hardware.nix
+        ./profile/default/configuration.nix
+        ./profile/dev/configuration.nix
         ./compose.nix
       ];
     };

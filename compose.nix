@@ -1,13 +1,6 @@
 # Make sure to add this to your bookmarks: https://search.nixos.org/options
 # This is where common options are set so you don't have to repeat yourself across files
 { settings, inputs, system, lib, ... }: {
-  # Use Lix from nixpkgs rather than the lix-module's own pinned 2.92 source
-  # build: that source sets `separateDebugInfo` together with
-  # `disallowedReferences` but without `__structuredAttrs`, which nixpkgs
-  # 26.05's stdenv rejects at eval time (and the throwing derivation can't be
-  # `overrideAttrs`-patched). nixpkgs' packaged Lix is guard-compliant.
-  imports = [ inputs.lix-module.nixosModules.lixFromNixpkgs ];
-
   nixpkgs.hostPlatform = system;
 
   networking.hostName = "nixos";
