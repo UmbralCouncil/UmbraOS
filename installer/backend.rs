@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RUNTIME_PATH: &str = "@PATH@";
+const NIX_BIN: &str = "@NIX@";
 const UMBRA_SOURCE: &str = "@UMBRA_SOURCE@";
 const NIXPKGS_SOURCE: &str = "@NIXPKGS_SOURCE@";
 const NIXPKGS_UNSTABLE_SOURCE: &str = "@NIXPKGS_UNSTABLE_SOURCE@";
@@ -346,7 +347,7 @@ fn build_target_system() -> BackendResult<String> {
         &spectrum,
         "path:/mnt/etc/umbra#nixosConfigurations.default.config.system.build.toplevel",
     ];
-    output("nix", &args)
+    output(NIX_BIN, &args)
 }
 
 fn install_system(body: &str) -> BackendResult<String> {

@@ -32,6 +32,7 @@ pkgs.runCommand "umbra-installer-0.1.0"
     "$out/share/icons/hicolor/256x256/apps/umbra-installer.png"
   substitute ${./backend.rs} backend.rs \
     --replace-fail @PATH@ '${runtimePath}' \
+    --replace-fail @NIX@ '${pkgs.nix}/bin/nix' \
     --replace-fail @UMBRA_SOURCE@ '${source}' \
     --replace-fail @NIXPKGS_SOURCE@ '${flakeInputs.nixpkgs}' \
     --replace-fail @NIXPKGS_UNSTABLE_SOURCE@ '${flakeInputs.nixpkgs-unstable}' \
