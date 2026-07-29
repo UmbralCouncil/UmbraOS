@@ -1,13 +1,20 @@
-{ inputs, pkgs, settings, isLive ? false, ... }: let
+{ inputs, lib, pkgs, settings, isLive ? false, ... }: let
     # Bring in the unstable channel
     unstable = import inputs.nixpkgs-unstable { inherit (pkgs) system; };
-    accountName = if isLive then "nixos" else settings.account.name;
-in{
-  # This line says what packages your user should have
-  # installed, they aren't shared with root or other users
-  home-manager.users.${accountName}.home.packages = with pkgs; [
-    # Use the prefix 'unstable.' for unstable packages
-    firefox
+    packages = with pkgs; [
+      # Use the prefix 'unstable.' for unstable packages
+      firefox
+    ];
+in {
+  # Persistent installs keep these in the user's Home Manager profile. The
+  # ephemeral live account has no writable profile, so expose them system-wide.
+  config = lib.mkMerge [
+    (lib.mkIf (!isLive) {
+      home-manager.users.${settings.account.name}.home.packages = packages;
+    })
+    (lib.mkIf isLive {
+      environment.systemPackages = packages;
+    })
   ];
   # Check https://search.nixos.org/packages to see which packages are available
 }

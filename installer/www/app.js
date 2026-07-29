@@ -56,6 +56,17 @@ const api = async (action, body) => {
   }
 };
 
+const diagnosticLog = async () => {
+  const response = await fetch("/cgi-bin/api?action=log", {
+    headers: { "X-Umbra-Token": token },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw Error(`Diagnostic log request failed (HTTP ${response.status})`);
+  }
+  return response.text();
+};
+
 const value = id => document.querySelector(`#${id}`)?.value || "";
 const selected = name =>
   document.querySelector(`input[name="${name}"]:checked`)?.value || "";
@@ -325,6 +336,23 @@ async function install() {
   next.disabled = true;
   document.querySelector("#back").disabled = true;
   document.querySelector("#progress").classList.remove("hidden");
+  const resultPanel = document.querySelector("#result");
+  resultPanel.textContent = "Starting installation diagnostics…";
+  resultPanel.classList.remove("hidden");
+  const refreshDiagnostics = async () => {
+    try {
+      const contents = await diagnosticLog();
+      if (contents.trim()) {
+        resultPanel.textContent = contents;
+        resultPanel.scrollTop = resultPanel.scrollHeight;
+      }
+    } catch {
+      // The primary install request reports backend disconnects. Keep the last
+      // successful diagnostic snapshot instead of replacing it with poll noise.
+    }
+  };
+  const diagnosticTimer = setInterval(refreshDiagnostics, 750);
+  await refreshDiagnostics();
   const payload = {
     mode,
     disk: mode === "erase" ? value("disk") : null,
@@ -338,15 +366,15 @@ async function install() {
   };
   try {
     const response = await api("install", payload);
-    document.querySelector("#result").textContent = response.message;
-    document.querySelector("#result").classList.remove("hidden");
+    resultPanel.textContent = response.message;
     document.querySelector("#progress").classList.add("hidden");
     next.textContent = "Installation complete";
   } catch (error) {
-    document.querySelector("#result").textContent = error.message;
-    document.querySelector("#result").classList.remove("hidden");
+    resultPanel.textContent = error.message;
     document.querySelector("#progress").classList.add("hidden");
     next.disabled = false;
+  } finally {
+    clearInterval(diagnosticTimer);
   }
 }
 

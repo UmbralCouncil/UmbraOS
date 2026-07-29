@@ -1,8 +1,9 @@
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -114,6 +115,111 @@ fn output(program: &str, args: &[&str]) -> BackendResult<String> {
             } else {
                 format!(": {stderr}")
             }
+        )));
+    }
+    Ok(stdout)
+}
+
+fn status_description(status: std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        format!("exit code {code}")
+    } else if let Some(signal) = status.signal() {
+        format!("signal {signal}")
+    } else {
+        status.to_string()
+    }
+}
+
+fn diagnostic_tail(text: &str, limit: usize) -> String {
+    let characters: Vec<char> = text.chars().collect();
+    characters[characters.len().saturating_sub(limit)..]
+        .iter()
+        .collect()
+}
+
+fn stream_pipe<R>(reader: R, label: &'static str) -> thread::JoinHandle<Vec<u8>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut captured = Vec::new();
+        loop {
+            let mut chunk = Vec::new();
+            match reader.read_until(b'\n', &mut chunk) {
+                Ok(0) => break,
+                Ok(_) => {
+                    captured.extend_from_slice(&chunk);
+                    let line = String::from_utf8_lossy(&chunk)
+                        .trim_end_matches(['\r', '\n'])
+                        .to_owned();
+                    if !line.is_empty() {
+                        log(&format!("[nix {label}] {line}"));
+                    }
+                }
+                Err(error) => {
+                    log(&format!("[nix {label}] stream read failed: {error}"));
+                    break;
+                }
+            }
+        }
+        captured
+    })
+}
+
+fn streamed_output(program: &str, args: &[&str]) -> BackendResult<String> {
+    log(&format!("executing: {program} {}", args.join(" ")));
+    let started = SystemTime::now();
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            BackendError::internal(format!(
+                "could not start {program}: {error}; PATH={RUNTIME_PATH}"
+            ))
+        })?;
+    log(&format!("spawned {program} as PID {}", child.id()));
+    let stdout_thread = stream_pipe(
+        child
+            .stdout
+            .take()
+            .ok_or_else(|| BackendError::internal("nix stdout pipe was unavailable"))?,
+        "stdout",
+    );
+    let stderr_thread = stream_pipe(
+        child
+            .stderr
+            .take()
+            .ok_or_else(|| BackendError::internal("nix stderr pipe was unavailable"))?,
+        "stderr",
+    );
+    let status = child
+        .wait()
+        .map_err(|error| BackendError::internal(format!("could not wait for {program}: {error}")))?;
+    let stdout = stdout_thread
+        .join()
+        .map_err(|_| BackendError::internal("nix stdout logger panicked"))?;
+    let stderr = stderr_thread
+        .join()
+        .map_err(|_| BackendError::internal("nix stderr logger panicked"))?;
+    let elapsed = started
+        .elapsed()
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let status_text = status_description(status);
+    log(&format!("{program} finished with {status_text} after {elapsed}s"));
+    let stdout = String::from_utf8_lossy(&stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&stderr).trim().to_owned();
+    if !status.success() {
+        let details = if stderr.is_empty() {
+            diagnostic_tail(&stdout, 12_000)
+        } else {
+            diagnostic_tail(&stderr, 12_000)
+        };
+        return Err(BackendError::internal(format!(
+            "target system build failed with {status_text} after {elapsed}s\n\n{details}\n\nFull log: {LOG_PATH}"
         )));
     }
     Ok(stdout)
@@ -317,6 +423,15 @@ fn disks_response() -> BackendResult<String> {
     ))
 }
 
+fn log_response() -> BackendResult<String> {
+    let contents = fs::read_to_string(LOG_PATH).unwrap_or_default();
+    Ok(cgi_response(
+        None,
+        "text/plain; charset=utf-8",
+        &diagnostic_tail(&contents, 60_000),
+    ))
+}
+
 fn build_target_system() -> BackendResult<String> {
     let nixpkgs = format!("path:{NIXPKGS_SOURCE}");
     let nixpkgs_unstable = format!("path:{NIXPKGS_UNSTABLE_SOURCE}");
@@ -327,6 +442,9 @@ fn build_target_system() -> BackendResult<String> {
         "--extra-experimental-features",
         "nix-command flakes",
         "build",
+        "--show-trace",
+        "--print-build-logs",
+        "--verbose",
         "--no-link",
         "--print-out-paths",
         "--no-write-lock-file",
@@ -347,7 +465,7 @@ fn build_target_system() -> BackendResult<String> {
         &spectrum,
         "path:/mnt/etc/umbra#nixosConfigurations.default.config.system.build.toplevel",
     ];
-    output(NIX_BIN, &args)
+    streamed_output(NIX_BIN, &args)
 }
 
 fn install_system(body: &str) -> BackendResult<String> {
@@ -357,6 +475,11 @@ fn install_system(body: &str) -> BackendResult<String> {
     let timezone = jq(body, ".timezone // empty")?;
     let password = jq(body, ".password // empty")?;
     let confirmation = jq(body, ".confirmation // empty")?;
+
+    log("========== installation request started ==========");
+    log(&format!(
+        "request settings: mode={mode} username={username} hostname={hostname} timezone={timezone}"
+    ));
 
     if !validate_username(&username) {
         return Err(BackendError::client("invalid username"));
@@ -502,6 +625,7 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
         let body = jq(raw, ".body // {} | @json")?;
         match action.as_str() {
             "disks" => disks_response(),
+            "log" => log_response(),
             "install" => {
                 if method != "POST" {
                     return Err(BackendError::client("POST required"));

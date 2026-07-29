@@ -1,10 +1,23 @@
 { inputs, pkgs, lib, config, ... }:
 let
-  # Home Manager is used only to build the immutable desktop-file generation.
-  # The live account does not run Home Manager activation: that activation
-  # expects a persistent, writable Nix profile, which an ephemeral ISO user
-  # deliberately does not have. tmpfiles installs the generation before login.
-  riceHome = config.home-manager.users.nixos.home.activationPackage;
+  # Build the live rice independently from the NixOS Home Manager module. The
+  # ephemeral `nixos` account must not gain a Home Manager systemd service:
+  # activation expects a persistent user profile, which the live image does not
+  # have. tmpfiles installs this immutable generation before login instead.
+  riceHome = (inputs.home-manager.lib.homeManagerConfiguration {
+    inherit pkgs;
+    modules = [
+      ../../modules/desktop/home-rice.nix
+      {
+        home = {
+          username = "nixos";
+          homeDirectory = "/home/nixos";
+          stateVersion = "25.05";
+        };
+        programs.home-manager.enable = true;
+      }
+    ];
+  }).activationPackage;
   umbraInstaller = import ../../installer {
     inherit pkgs;
     source = inputs.self;
@@ -40,19 +53,6 @@ in
     enable = true;
     user = "nixos";
   };
-
-  # The live desktop uses nixpkgs' `nixos` installer account rather than the
-  # normal UmbraOS account configured in compose.nix.
-  home-manager.users.nixos = {
-    imports = [ ../../modules/desktop/home-rice.nix ];
-    programs.home-manager.enable = true;
-    home.stateVersion = "25.05";
-  };
-
-  # The activation package above is a build-time source for `riceHome`.
-  # Applying it through the normal Home Manager system service would attempt
-  # to create a mutable per-user Nix profile on the read-only live system.
-  systemd.services.home-manager-nixos.enable = false;
 
   # The upstream graphical installer profile makes wheel passwordless. Retain
   # wheel membership for normal desktop integration, but do not grant the live

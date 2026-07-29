@@ -1,11 +1,14 @@
 { config, lib, pkgs, ... }:
 let
   wallpaper = ../../assets/home_wallpaper.png;
-  applicationButton = ../../assets/darkmode_application_button.svg;
+  installedWallpaper =
+    "${config.home.homeDirectory}/.local/share/wallpapers/UmbraOS/contents/images/2560x1600.png";
+  installedApplicationButton =
+    "${config.home.homeDirectory}/.local/share/icons/hicolor/scalable/apps/umbra-application-dark.svg";
   umbraPlasmaTheme = import ./theme-package.nix { inherit pkgs; };
   plasmaDefaults = ''
-    const wallpaper = "file://${toString wallpaper}";
-    const launcherIcon = "file://${toString applicationButton}";
+    const wallpaper = "file://${installedWallpaper}";
+    const launcherIcon = "${installedApplicationButton}";
     desktops().forEach((desktop) => {
       desktop.wallpaperPlugin = "org.kde.image";
       desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
@@ -183,28 +186,25 @@ in
     text = ''
       #!${pkgs.runtimeShell}
       set -eu
-      marker="$HOME/.config/umbra/rice-v2"
+      marker="$HOME/.config/umbra/rice-v3"
       if [ -e "$marker" ]; then
         exit 0
       fi
       ${pkgs.coreutils}/bin/mkdir -p "$HOME/.config/umbra"
-      ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-lookandfeel \
-        --apply dev.umbraos.desktop
-      ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-wallpaperimage \
-        ${lib.escapeShellArg (toString wallpaper)}
-      applied=
-      for _ in $(${pkgs.coreutils}/bin/seq 1 20); do
+      # KDE autostart can run before plasmashell has published its D-Bus API.
+      # Wait for the shell and apply the per-containment settings atomically;
+      # kdeglobals already selects the Umbra look-and-feel and color scheme.
+      for _ in $(${pkgs.coreutils}/bin/seq 1 60); do
         if ${pkgs.kdePackages.qttools}/bin/qdbus \
           org.kde.plasmashell /PlasmaShell \
           org.kde.PlasmaShell.evaluateScript \
           ${lib.escapeShellArg plasmaDefaults}; then
-          applied=1
-          break
+          ${pkgs.coreutils}/bin/touch "$marker"
+          exit 0
         fi
         ${pkgs.coreutils}/bin/sleep .5
       done
-      [ "$applied" = 1 ]
-      ${pkgs.coreutils}/bin/touch "$marker"
+      exit 1
     '';
   };
 
