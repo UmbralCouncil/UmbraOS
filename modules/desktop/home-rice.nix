@@ -178,6 +178,14 @@ in
     SingleClick=false
   '';
 
+  # Krohnkite is the maintained Plasma 6-compatible dynamic tiler that fills
+  # Bismuth's role. The package is installed system-wide by rice.nix; enable
+  # its KWin script for every persistent user and for the live session.
+  xdg.configFile."kwinrc".text = ''
+    [Plugins]
+    krohnkiteEnabled=true
+  '';
+
   # Plasma's runtime containment and panel IDs are generated per user, so set
   # the wallpaper and launcher icon through the supported scripting API once
   # the shell is running. Leave subsequent user customization alone.
