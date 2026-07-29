@@ -128,10 +128,9 @@ in
           maxGiB = toString cfg.maxSizeGiB;
         }
         ''
-          # `filePath` (from the images framework passthru) is the exact emitted
-          # path under the derivation, e.g. iso/umbra-….iso — more robust than
-          # globbing and correct even if the image is compressed.
-          iso="${config.system.build.images.iso}/${config.system.build.images.iso.passthru.filePath}"
+          # The ISO builder emits the configured filename beneath its `iso`
+          # directory.
+          iso="${config.system.build.isoImage}/iso/${config.image.fileName}"
           actual=$(stat -c%s "$iso")
           gib=$(awk "BEGIN{printf \"%.2f\", $actual/1073741824}")
           if [ "$actual" -gt "$maxBytes" ]; then

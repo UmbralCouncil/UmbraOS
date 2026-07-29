@@ -9,7 +9,7 @@
 <body>
   <main class="shell">
     <header>
-      <img src="logo.png" alt="">
+      <img src="umbraos_logo.png" alt="">
       <div><span class="eyebrow">UMBRA PROJECT</span><h1>Install UmbraOS</h1></div>
       <span id="stepLabel" class="step-label">1 / 4</span>
     </header>
@@ -18,10 +18,10 @@
       <p class="kicker">A clean, reproducible installation</p>
       <h2>Choose how UmbraOS uses your disk.</h2>
       <div class="choices">
-        <button class="choice selected" data-mode="erase">
+        <button class="choice selected" data-mode="erase" aria-pressed="true">
           <b>Use an entire disk</b><span>Erase one selected disk and create an EFI + Btrfs layout.</span>
         </button>
-        <button class="choice" data-mode="manual">
+        <button class="choice" data-mode="manual" aria-pressed="false">
           <b>Manual / dual boot</b><span>Assign a prepared Linux partition and reuse an EFI System Partition.</span>
         </button>
       </div>
@@ -29,9 +29,14 @@
     </section>
 
     <section class="panel" data-step="1">
-      <p class="kicker">Storage</p><h2>Select the installation target.</h2>
-      <div id="storageFields"></div>
-      <button id="refresh" class="secondary">Refresh devices</button>
+      <div class="storage-heading">
+        <div>
+          <p class="kicker">Storage</p>
+          <h2>Set up the installation target.</h2>
+        </div>
+        <button id="refresh" class="secondary">Refresh devices</button>
+      </div>
+      <div id="storageFields" aria-live="polite"></div>
     </section>
 
     <section class="panel" data-step="2">
@@ -52,7 +57,7 @@
         <input id="confirmation" autocomplete="off">
       </label>
       <div id="progress" class="progress hidden"><div></div></div>
-      <pre id="result" class="hidden"></pre>
+      <pre id="result" class="hidden" aria-live="polite"></pre>
     </section>
 
     <footer>

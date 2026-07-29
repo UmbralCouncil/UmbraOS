@@ -19,9 +19,26 @@
       # security distros ship.
       hashedPassword = settings.account.hashedPassword;
     };
+
+    systemd.services."home-manager-${settings.account.name}".serviceConfig = {
+      StandardOutput = "journal";
+      StandardError = "journal";
+      TimeoutStartSec = lib.mkForce "15m";
+    };
   };
 
   nixpkgs.hostPlatform = system;
+
+  # Keep Home Manager activation predictable on both fresh installs and
+  # systems where Plasma has already created its own configuration files.
+  # Verbose output is retained in the journal for actionable boot diagnostics.
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    backupFileExtension = "hm-backup";
+    overwriteBackup = true;
+    verbose = true;
+  };
 
   networking.hostName = settings.hostName;
   system.stateVersion = "25.05";

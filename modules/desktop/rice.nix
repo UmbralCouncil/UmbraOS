@@ -9,7 +9,8 @@ in
   # refer to the same immutable files.
   environment.etc = {
     "umbra/artwork/logo.png".source = ../../assets/logo.png;
-    "umbra/artwork/brandmark.png".source = ../../assets/Untitled3_20260716000247.png;
+    "umbra/artwork/splash.png".source = ../../assets/splash.png;
+    "umbra/artwork/brandmark.png".source = ../../assets/umbraos_logo.png;
     "umbra/artwork/wallpaper.png".source = ../../assets/home_wallpaper.png;
     "umbra/artwork/palette.png".source = ../../assets/color_palette.png;
     "umbra/artwork/application-button-dark.svg".source =
@@ -23,7 +24,7 @@ in
   # and force-disables Limine, so these defaults naturally apply only where the
   # loader is active.
   boot.loader.limine.style = {
-    wallpapers = [ ../../assets/grub_splash.png ];
+    wallpapers = [ ../../assets/splash.png ];
     wallpaperStyle = "stretched";
     backdrop = "000824";
     interface = {
@@ -34,11 +35,11 @@ in
   };
 
   # `bgrt` prefers firmware artwork and can therefore hide the configured
-  # distro logo entirely. Breeze Plymouth is built with this logo and always
-  # renders the Umbra splash during boot.
+  # distro splash entirely. Breeze Plymouth is built with the dedicated Umbra
+  # splash asset and always renders it during boot.
   boot.plymouth = {
     theme = "breeze";
-    logo = ../../assets/logo.png;
+    logo = ../../assets/splash.png;
   };
 
   # Let desktop shells and About dialogs resolve UmbraOS's own mark through

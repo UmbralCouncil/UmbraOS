@@ -1,0 +1,7 @@
+# Nix build outputs
+result
+result-*
+
+# Locally packaged release archives
+*source-*.tar.gz
+attach-iso.sh

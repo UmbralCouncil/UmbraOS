@@ -8,6 +8,7 @@ let
   umbraInstaller = import ../../installer {
     inherit pkgs;
     source = inputs.self;
+    flakeInputs = inputs;
   };
   umbraInstallerAutostart = pkgs.makeAutostartItem {
     name = "umbra-installer";
@@ -18,10 +19,10 @@ in
 {
   imports = [
     # The graphical Plasma 6 live/installer base and the live desktop come from
-    # ../../modules/iso (wired into the umbra-live flake output). That base ships
-    # Calamares as UmbraOS's sole installation path. This profile only layers
-    # the Umbra-specific live-session UX and shared tooling on top; it must not
-    # re-import the graphical base or
+    # ../../modules/iso (wired into the umbra-live flake output). Umbra replaces
+    # the base profile's installer flow with its own local web UI and constrained
+    # Rust backend. This profile only layers the Umbra-specific live-session UX
+    # and shared tooling on top; it must not re-import the graphical base or
     # ../../modules/desktop/plasma.nix — plasma.nix's SDDM collides with the
     # base's plasma-login-manager.
     ../../modules/apps/software.nix
@@ -53,6 +54,24 @@ in
   # to create a mutable per-user Nix profile on the read-only live system.
   systemd.services.home-manager-nixos.enable = false;
 
+  # The upstream graphical installer profile makes wheel passwordless. Retain
+  # wheel membership for normal desktop integration, but do not grant the live
+  # account an unrestricted root shell. Its sole passwordless privilege is the
+  # installer backend, whose command modes, socket, token, and target validation
+  # are enforced internally.
+  security.sudo.wheelNeedsPassword = lib.mkForce true;
+  security.sudo.extraRules = [
+    {
+      users = [ "nixos" ];
+      commands = [
+        {
+          command = "${umbraInstaller}/libexec/umbra-installer/backend";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
+
   systemd.tmpfiles.rules = [
     "d /home/nixos/.config 0755 nixos users - -"
     "d /home/nixos/.config/autostart 0755 nixos users - -"
@@ -82,12 +101,12 @@ in
     chown -h nixos:users /home/nixos/Desktop/umbra-installer.desktop
   '';
 
-  # Umbra Installer is the sole supported OS installer. Firefox is its local
-  # HTML shell; the privileged backend is a fixed Bash API, not browser code.
+  # Umbra Installer is the sole supported OS installer. A constrained native
+  # Qt WebEngine window hosts the frontend; privileged operations remain in the
+  # Rust Unix-socket backend.
   environment.systemPackages = with pkgs; [
     umbraInstaller
     umbraInstallerAutostart
-    firefox
     git
     parted
     gptfdisk

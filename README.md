@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/Untitled3_20260716000247.png" width="300" alt="UmbraOS Logo">
+  <img src="assets/umbraos_logo.png" width="300" alt="UmbraOS Logo">
 </p>
 
 > Nix-based OS built for cybersecurity learners and enthusiasts alike.
@@ -16,10 +16,16 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 - Beginner-friendly without sacrificing flexibility
 - Privacy-first (no mandatory telemetry)
 
+## Current Foundation
+
+- [x] Bootable KDE Plasma live ISO
+- [x] Custom Nix flake installer
+- [x] Whole-disk and manual/dual-boot installation paths
+- [x] MicroVM host and isolated-guest foundations
+- [x] Declarative, schema-validated lab image catalog
+
 ## Planned Features
 
-- [ ] Bootable ISO
-- [ ] Nix flake installer
 - [ ] Guided cybersecurity labs
 - [ ] AI teaching assistant
 - [ ] Lab authoring toolkit
@@ -27,7 +33,8 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 
 ## Status
 
-Early development
+v0.1 foundation preview. Use disposable hardware or virtual machines while the
+installer continues hardware testing.
 
 ## Join the Family
 ![Discord](https://discord.com/api/guilds/1527521057483784264/widget.png?style=banner2)

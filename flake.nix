@@ -71,14 +71,13 @@
       installer = import ./installer {
         inherit pkgs;
         source = inputs.self;
+        flakeInputs = inputs;
       };
 
-      # The bootable UmbraOS live ISO. Built through the images framework
-      # (config.system.build.images.iso) — the same path `nixos-rebuild
-      # build-image` takes, so no nixos-generators is needed. This is heavy and
-      # is meant to be built manually on the dev machine (see `just build-iso`),
-      # never in CI.
-      iso = inputs.self.nixosConfigurations.umbra-live.config.system.build.images.iso;
+      # The bootable UmbraOS live ISO. The live configuration imports the ISO
+      # builder directly, so expose its native output rather than wrapping that
+      # builder through the multi-image framework a second time.
+      iso = inputs.self.nixosConfigurations.umbra-live.config.system.build.isoImage;
 
       # The emitted /etc/umbra/images.json, realisable on its own so Umbra Studio
       # can consume it as a test fixture without building or booting a system.
