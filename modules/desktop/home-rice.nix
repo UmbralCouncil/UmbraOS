@@ -150,10 +150,14 @@ in
     '';
 
     "hypr/hyprpaper.conf".text = ''
-      preload = ${wallpaper}
-      wallpaper = ,${wallpaper}
       splash = false
       ipc = true
+
+      wallpaper {
+        monitor = *
+        path = ${wallpaper}
+        fit_mode = cover
+      }
     '';
 
     "hypr/live.conf".text = "";
