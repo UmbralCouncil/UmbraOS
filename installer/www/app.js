@@ -32,8 +32,8 @@ const api = async (action, body) => {
     });
   } catch {
     throw Error(
-      "The local installer service disconnected. This is not an internet error. " +
-        "Open /tmp/umbra-installer.log for details.",
+      "The installer window lost the response, but the privileged installation " +
+        "may still be running. Check Verbose installation diagnostics before retrying.",
     );
   }
 
@@ -43,8 +43,8 @@ const api = async (action, body) => {
   }
   if (!text.trim()) {
     throw Error(
-      "Installer backend exited without a response. " +
-        "Open /tmp/umbra-installer.log for details.",
+      "The request ended without a response. The installation may still be running; " +
+        "check Verbose installation diagnostics before retrying.",
     );
   }
   try {
@@ -337,14 +337,16 @@ async function install() {
   document.querySelector("#back").disabled = true;
   document.querySelector("#progress").classList.remove("hidden");
   const resultPanel = document.querySelector("#result");
-  resultPanel.textContent = "Starting installation diagnostics…";
+  const diagnosticPanel = document.querySelector("#diagnosticOutput");
+  resultPanel.textContent = "Installation is running.";
   resultPanel.classList.remove("hidden");
+  diagnosticPanel.textContent = "Waiting for installer backend output…";
   const refreshDiagnostics = async () => {
     try {
       const contents = await diagnosticLog();
       if (contents.trim()) {
-        resultPanel.textContent = contents;
-        resultPanel.scrollTop = resultPanel.scrollHeight;
+        diagnosticPanel.textContent = contents;
+        diagnosticPanel.scrollTop = diagnosticPanel.scrollHeight;
       }
     } catch {
       // The primary install request reports backend disconnects. Keep the last

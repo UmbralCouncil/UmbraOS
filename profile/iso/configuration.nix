@@ -82,7 +82,6 @@ in
     "d /home/nixos/.local/share/icons/hicolor/256x256/apps 0755 nixos users - -"
     "d /home/nixos/.local/share/wallpapers/UmbraOS/contents/images 0755 nixos users - -"
     "L+ /home/nixos/.config/kdeglobals - nixos users - ${riceHome}/home-files/.config/kdeglobals"
-    "L+ /home/nixos/.config/kwinrc - nixos users - ${riceHome}/home-files/.config/kwinrc"
     "L+ /home/nixos/.config/autostart/umbra-rice.desktop - nixos users - ${riceHome}/home-files/.config/autostart/umbra-rice.desktop"
     "L+ /home/nixos/.local/bin/umbra-apply-rice - nixos users - ${riceHome}/home-files/.local/bin/umbra-apply-rice"
     "L+ /home/nixos/.local/share/color-schemes/UmbraDark.colors - nixos users - ${riceHome}/home-files/.local/share/color-schemes/UmbraDark.colors"

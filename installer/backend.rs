@@ -476,6 +476,10 @@ fn install_system(body: &str) -> BackendResult<String> {
     let password = jq(body, ".password // empty")?;
     let confirmation = jq(body, ".confirmation // empty")?;
 
+    // Each installation gets a fresh diagnostic transcript. Without this, the
+    // UI can surface a stale failure from an earlier attempt while the current
+    // backend is operating normally.
+    let _ = fs::write(LOG_PATH, "");
     log("========== installation request started ==========");
     log(&format!(
         "request settings: mode={mode} username={username} hostname={hostname} timezone={timezone}"

@@ -379,6 +379,32 @@ pre {
   border-radius: 7px;
 }
 
+.diagnostics {
+  margin-top: 10px;
+  border: 1px solid #26396f;
+  border-radius: 8px;
+  background: #020718;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.diagnostics summary {
+  padding: 9px 11px;
+  color: #8de8c1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.diagnostics pre {
+  height: 190px;
+  max-height: 190px;
+  margin: 0;
+  border-top: 1px solid #26396f;
+  border-radius: 0 0 7px 7px;
+  color: #b6f5d8;
+  overflow: auto;
+  scrollbar-color: #526aa7 #020718;
+}
+
 .hidden {
   display: none;
 }

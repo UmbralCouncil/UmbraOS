@@ -3,10 +3,7 @@ let
   umbraPlasmaTheme = import ./theme-package.nix { inherit pkgs; };
 in
 {
-  environment.systemPackages = [
-    umbraPlasmaTheme
-    pkgs.kdePackages.krohnkite
-  ];
+  environment.systemPackages = [ umbraPlasmaTheme ];
 
   # Keep the artwork in the system closure so boot and desktop components can
   # refer to the same immutable files.
