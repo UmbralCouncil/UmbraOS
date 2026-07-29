@@ -27,17 +27,19 @@ let
     name = "umbra-installer";
     package = umbraInstaller;
   };
+  liveHyprlandConfig = pkgs.writeText "umbra-live.conf" ''
+    exec-once = ${umbraInstaller}/bin/umbra-installer
+  '';
 
 in
 {
   imports = [
-    # The graphical Plasma 6 live/installer base and the live desktop come from
+    # The graphical Hyprland live/installer base and the live desktop come from
     # ../../modules/iso (wired into the umbra-live flake output). Umbra replaces
     # the base profile's installer flow with its own local web UI and constrained
     # Rust backend. This profile only layers the Umbra-specific live-session UX
     # and shared tooling on top; it must not re-import the graphical base or
-    # ../../modules/desktop/plasma.nix — plasma.nix's SDDM collides with the
-    # base's plasma-login-manager.
+    # ../../modules/desktop/hyprland.nix because the ISO module owns it.
     ../../modules/apps/software.nix
     ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
@@ -48,7 +50,8 @@ in
   # module's own boot mechanism; make sure the disk bootloader isn't pulled in.
   boot.loader.limine.enable = lib.mkForce false;
 
-  # Auto-login to the Plasma live session as the `nixos` installer user.
+  # SDDM starts the disposable live account directly; installed systems retain
+  # the same Breeze-based login manager without autologin.
   services.displayManager.autoLogin = {
     enable = true;
     user = "nixos";
@@ -74,24 +77,25 @@ in
 
   systemd.tmpfiles.rules = [
     "d /home/nixos/.config 0755 nixos users - -"
-    "d /home/nixos/.config/autostart 0755 nixos users - -"
-    "d /home/nixos/.local/bin 0755 nixos users - -"
-    "d /home/nixos/.local/share/color-schemes 0755 nixos users - -"
-    "d /home/nixos/.local/share/icons/hicolor/scalable/apps 0755 nixos users - -"
-    "d /home/nixos/.local/share/icons/hicolor/scalable/places 0755 nixos users - -"
-    "d /home/nixos/.local/share/icons/hicolor/256x256/apps 0755 nixos users - -"
-    "d /home/nixos/.local/share/wallpapers/UmbraOS/contents/images 0755 nixos users - -"
-    "L+ /home/nixos/.config/kdeglobals - nixos users - ${riceHome}/home-files/.config/kdeglobals"
-    "L+ /home/nixos/.config/autostart/umbra-rice.desktop - nixos users - ${riceHome}/home-files/.config/autostart/umbra-rice.desktop"
-    "L+ /home/nixos/.local/bin/umbra-apply-rice - nixos users - ${riceHome}/home-files/.local/bin/umbra-apply-rice"
-    "L+ /home/nixos/.local/share/color-schemes/UmbraDark.colors - nixos users - ${riceHome}/home-files/.local/share/color-schemes/UmbraDark.colors"
-    "L+ /home/nixos/.local/share/color-schemes/UmbraLight.colors - nixos users - ${riceHome}/home-files/.local/share/color-schemes/UmbraLight.colors"
-    "L+ /home/nixos/.local/share/icons/hicolor/256x256/apps/umbraos.png - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/256x256/apps/umbraos.png"
-    "L+ /home/nixos/.local/share/icons/hicolor/scalable/apps/umbra-application-dark.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/apps/umbra-application-dark.svg"
-    "L+ /home/nixos/.local/share/icons/hicolor/scalable/apps/umbra-application-light.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/apps/umbra-application-light.svg"
-    "L+ /home/nixos/.local/share/icons/hicolor/scalable/places/start-here.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/places/start-here.svg"
-    "L+ /home/nixos/.local/share/icons/hicolor/scalable/places/start-here-kde-symbolic.svg - nixos users - ${riceHome}/home-files/.local/share/icons/hicolor/scalable/places/start-here-kde-symbolic.svg"
-    "L+ /home/nixos/.local/share/wallpapers/UmbraOS/contents/images/2560x1600.png - nixos users - ${riceHome}/home-files/.local/share/wallpapers/UmbraOS/contents/images/2560x1600.png"
+    "d /home/nixos/.config/hypr 0755 nixos users - -"
+    "d /home/nixos/.config/kitty 0755 nixos users - -"
+    "d /home/nixos/.config/mako 0755 nixos users - -"
+    "d /home/nixos/.config/waybar 0755 nixos users - -"
+    "d /home/nixos/.config/wofi 0755 nixos users - -"
+    "d /home/nixos/.config/gtk-3.0 0755 nixos users - -"
+    "d /home/nixos/.config/gtk-4.0 0755 nixos users - -"
+    "L+ /home/nixos/.config/hypr/hyprland.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprland.conf"
+    "L+ /home/nixos/.config/hypr/hyprpaper.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprpaper.conf"
+    "L+ /home/nixos/.config/hypr/hyprlock.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprlock.conf"
+    "L+ /home/nixos/.config/hypr/live.conf - nixos users - ${liveHyprlandConfig}"
+    "L+ /home/nixos/.config/kitty/kitty.conf - nixos users - ${riceHome}/home-files/.config/kitty/kitty.conf"
+    "L+ /home/nixos/.config/mako/config - nixos users - ${riceHome}/home-files/.config/mako/config"
+    "L+ /home/nixos/.config/waybar/config.jsonc - nixos users - ${riceHome}/home-files/.config/waybar/config.jsonc"
+    "L+ /home/nixos/.config/waybar/style.css - nixos users - ${riceHome}/home-files/.config/waybar/style.css"
+    "L+ /home/nixos/.config/wofi/config - nixos users - ${riceHome}/home-files/.config/wofi/config"
+    "L+ /home/nixos/.config/wofi/style.css - nixos users - ${riceHome}/home-files/.config/wofi/style.css"
+    "L+ /home/nixos/.config/gtk-3.0/settings.ini - nixos users - ${riceHome}/home-files/.config/gtk-3.0/settings.ini"
+    "L+ /home/nixos/.config/gtk-4.0/settings.ini - nixos users - ${riceHome}/home-files/.config/gtk-4.0/settings.ini"
   ];
 
   system.activationScripts.installerDesktop = ''

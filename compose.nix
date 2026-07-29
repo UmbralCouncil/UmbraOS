@@ -30,7 +30,7 @@
   nixpkgs.hostPlatform = system;
 
   # Keep Home Manager activation predictable on both fresh installs and
-  # systems where Plasma has already created its own configuration files.
+  # systems where a desktop session has already created configuration files.
   # Verbose output is retained in the journal for actionable boot diagnostics.
   home-manager = {
     useGlobalPkgs = true;

@@ -18,7 +18,7 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 
 ## Current Foundation
 
-- [x] Bootable KDE Plasma live ISO
+- [x] Bootable Hyprland live ISO
 - [x] Custom Nix flake installer
 - [x] Whole-disk and manual/dual-boot installation paths
 - [x] MicroVM host and isolated-guest foundations

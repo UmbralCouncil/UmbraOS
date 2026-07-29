@@ -1,30 +1,26 @@
-# UmbraOS live/installer ISO — the graphical Plasma 6 image users boot to try
+# UmbraOS live/installer ISO — the graphical Hyprland image users boot to try
 # or install Umbra, and the vehicle that seeds the freely-redistributable lab
 # base images onto the medium.
 #
 # This module OWNS the ISO's squashfs compression, the live desktop, and the
-# lab-image seeding. It builds on nixpkgs' Plasma 6 graphical installer base and
+# lab-image seeding. It builds on nixpkgs' graphical installer base and
 # the umbra microVM `core` module so the live session can already host labs.
 # The ISO name / volume ID are deliberately left to profile/iso/configuration.nix
 # (which mkForces the UmbraOS identity); this module does not fight that.
 #
-# It deliberately does NOT import ../desktop/plasma.nix. That module enables
-# SDDM, which collides with the Plasma 6 installer base's plasma-login-manager
-# (a host may run only one display manager). The base already supplies the KDE
-# desktop + login manager + autologin, so importing plasma.nix here would both
-# duplicate the desktop and force a display-manager conflict. The one piece
-# plasma.nix adds that the base lacks — the PipeWire audio stack — is reproduced
-# below so the live session still has sound.
+# The shared Hyprland module owns the compositor, SDDM, and lightweight desktop
+# utilities. The live profile only adds SDDM autologin for the installer user.
 { config, lib, pkgs, modulesPath, ... }:
 let
   cfg = config.umbra.iso;
 in
 {
   imports = [
-    # NixOS graphical live base. Umbra supplies Plasma and its own installer;
+    # NixOS graphical live base. Umbra supplies Hyprland and its own installer;
     # importing the Calamares profile here would ship and auto-start a second,
     # unrelated installer.
     "${modulesPath}/installer/cd-dvd/installation-cd-graphical-base.nix"
+    ../desktop/hyprland.nix
     # umbra microVM host, so the live session can run labs out of the box.
     ../virt/core.nix
   ];
@@ -56,15 +52,6 @@ in
     # (isoName / volumeID stay owned by profile/iso/configuration.nix.)
     isoImage.squashfsCompression = "zstd -Xcompression-level 15";
 
-    # --- Live desktop ---------------------------------------------------------
-    services.desktopManager.plasma6 = {
-      enable = true;
-      enableQt5Integration = false;
-    };
-    services.displayManager.plasma-login-manager.enable = true;
-    environment.plasma6.excludePackages = [ pkgs.kdePackages.plasma-workspace-wallpapers ];
-    programs.kde-pim.enable = false;
-
     # --- Networking: iwd ------------------------------------------------------
     # Wi-Fi via iwd. NetworkManager (from compose.nix) drives it through the iwd
     # backend rather than wpa_supplicant.
@@ -84,7 +71,7 @@ in
     # live profile but fail noisily on physical machines.
     services.xe-guest-utilities.enable = lib.mkForce false;
 
-    # --- Audio (the non-conflicting half of ../desktop/plasma.nix) ------------
+    # --- Audio ---------------------------------------------------------------
     security.rtkit.enable = true;
     services.pipewire = {
       enable = true;
