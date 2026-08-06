@@ -29,6 +29,13 @@
       then import ./installer-settings.nix
       else { };
     settings = inputs.nixpkgs.lib.recursiveUpdate baseSettings installSettings;
+    migrationAvailable =
+      builtins.pathExists ./migration-settings.nix
+      && builtins.pathExists ./migration-hardware.nix
+      && builtins.pathExists ./migration-host.nix;
+    migrationSettings =
+      inputs.nixpkgs.lib.recursiveUpdate baseSettings
+        (if migrationAvailable then import ./migration-settings.nix else { });
     system = "x86_64-linux";               # System architecture
 
     # Instantiate the unstable package set for this system so modules can
@@ -85,6 +92,13 @@
       # is byte-identical to the on-disk file.
       images-json =
         inputs.self.nixosConfigurations.umbra-live.config.environment.etc."umbra/images.json".source;
+
+      # Guarded host migration helper. It creates a private, host-specific copy
+      # of this flake; normal source builds never contain machine-local data.
+      migrate = import ./tools/migrate {
+        inherit pkgs;
+        source = inputs.self;
+      };
     };
 
     # Having more than one configuration allows you to use the same
@@ -126,6 +140,24 @@
         ./profile/iso/configuration.nix
         ./modules/iso
         ./modules/labs/images
+        ./compose.nix
+      ];
+    };
+  } // inputs.nixpkgs.lib.optionalAttrs migrationAvailable {
+    # This output exists only inside a snapshot prepared by `nix run .#migrate`.
+    # It cannot accidentally use the repository's development-machine hardware
+    # file or default Umbra account.
+    nixosConfigurations.umbra-migration = inputs.nixpkgs.lib.nixosSystem {
+      specialArgs = {
+        inherit inputs system unstable;
+        settings = migrationSettings;
+        isLive = false;
+      };
+      modules = [
+        inputs.home-manager.nixosModules.home-manager
+        ./migration-hardware.nix
+        ./migration-host.nix
+        ./profile/default/configuration.nix
         ./compose.nix
       ];
     };

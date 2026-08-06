@@ -13,7 +13,23 @@
 
     users.users.${settings.account.name} = {
       isNormalUser = true;
-      extraGroups = [ "networkmanager" "wheel" ];
+      extraGroups = lib.unique (
+        [ "networkmanager" "wheel" ] ++ (settings.account.extraGroups or [ ])
+      );
+    }
+    // lib.optionalAttrs (settings.account ? uid) {
+      inherit (settings.account) uid;
+    }
+    // lib.optionalAttrs (settings.account ? home) {
+      inherit (settings.account) home;
+    }
+    // lib.optionalAttrs (settings.account ? group) {
+      inherit (settings.account) group;
+    }
+    # Migration deliberately leaves the password unspecified. With the NixOS
+    # default `users.mutableUsers = true`, the existing /etc/shadow entry is
+    # retained byte-for-byte rather than copied into the world-readable store.
+    // lib.optionalAttrs (!(settings.account.preservePassword or false)) {
       # Default login password is "umbra" (SHA-512 crypt). Change this before
       # any non-lab deployment — it is a well-known default, like other
       # security distros ship.
