@@ -72,3 +72,8 @@ switch also points `/etc/nixos/umbra` at the active migration snapshot.
 
 ## Join the Family
 ![Discord](https://discord.com/api/guilds/1527521057483784264/widget.png?style=banner2)
+
+## Contribute to the Cause
+https://cash.app/$taptsecd
+
+I'm kinda going through some shit right now and being thrown in a group home but its whatever
