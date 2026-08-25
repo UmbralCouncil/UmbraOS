@@ -88,5 +88,9 @@
     efiSupport = true;
     style.interface.branding = "UmbraOS";
   };
+  # Register Limine with the firmware instead of installing it only as the
+  # removable-media fallback. Existing firmware entries (including
+  # systemd-boot) remain available for recovery.
+  boot.loader.efi.canTouchEfiVariables = true;
   boot.loader.efi.efiSysMountPoint = "/boot";
 }

@@ -1,0 +1,17 @@
+[package]
+name = "umbra-installer-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[[bin]]
+name = "umbra-installer-ui"
+path = "gui.rs"

@@ -1,9 +1,8 @@
 # MicroVM HOST support (https://github.com/astro/microvm.nix).
 #
-# UmbraOS runs microVMs as disposable, air-gapped sandboxes for handling
-# untrusted code and live malware. The host side therefore deliberately
-# provides NO bridge, NO tap devices, NO NAT/DHCP — there is intentionally
-# nothing for a guest to attach to.
+# UmbraOS runs its managed microVM labs as disposable, air-gapped sandboxes for
+# handling untrusted code and live malware. The host side therefore provides no
+# network device to those guests.
 #
 # Per-guest isolation (no network, no host filesystem access) is enforced by
 # ./isolated-guest.nix, which every lab VM declared under `microvm.vms.<name>`

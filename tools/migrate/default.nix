@@ -110,6 +110,12 @@ pkgs.writeShellApplication {
       echo "umbra-migrate: home directory '$user_home' does not exist" >&2
       exit 2
     fi
+    previous_system_profile="$(readlink -f /run/current-system/sw)"
+    if ! [[ "$previous_system_profile" =~ ^/nix/store/[^/]+$ ]] \
+      || [ ! -d "$previous_system_profile" ]; then
+      echo "umbra-migrate: could not resolve the current system software profile" >&2
+      exit 2
+    fi
 
     if [ "$mode" != build ] && [ -z "$allow_graphical" ]; then
       active_tty="$(tty 2>/dev/null || true)"
@@ -176,12 +182,25 @@ pkgs.writeShellApplication {
     EOF
 
     cat > "$target/migration-host.nix" <<EOF
-    { ... }:
+    { lib, pkgs, ... }:
+    let
+      previousSystemSoftware = pkgs.symlinkJoin {
+        name = "umbra-preserved-system-software";
+        paths = [ (builtins.storePath $(nix_quote "$previous_system_profile")) ];
+      };
+    in
     {
       # Existing shadow entries remain authoritative during migration.
       users.mutableUsers = true;
       users.groups = {$group_declarations
       };
+
+      # Retain every program exposed by the pre-migration system profile.
+      # UmbraOS packages have normal priority; this compatibility profile has
+      # low priority, so Umbra wins collisions without dropping other apps.
+      environment.systemPackages = [
+        (lib.lowPrio previousSystemSoftware)
+      ];
     }
     EOF
 
@@ -194,14 +213,32 @@ pkgs.writeShellApplication {
     cd "$target"
 
     echo "Building the host-specific UmbraOS generation..."
-    nixos-rebuild build --flake "$flake_ref"
-    if [ ! -e result/sw/share/wayland-sessions/hyprland.desktop ]; then
+    # The generated host module deliberately references the already-installed
+    # system profile with builtins.storePath. That host-local reference is
+    # unavailable to pure flake evaluation, so migration evaluations must be
+    # explicitly impure.
+    nixos-rebuild build --impure --flake "$flake_ref"
+    sddm_config="result/etc/sddm.conf.d/00-nixos.conf"
+    wayland_session_dir="$(
+      awk '
+        $0 == "[Wayland]" { in_wayland = 1; next }
+        /^\[/ { in_wayland = 0 }
+        in_wayland && /^SessionDir=/ {
+          sub(/^SessionDir=/, "")
+          print
+          exit
+        }
+      ' "$sddm_config" 2>/dev/null || true
+    )"
+    if ! grep -qx 'DefaultSession=hyprland.desktop' "$sddm_config" \
+      || [ -z "$wayland_session_dir" ] \
+      || [ ! -e "$wayland_session_dir/hyprland.desktop" ]; then
       echo "umbra-migrate: built system does not contain the Hyprland login session" >&2
       exit 1
     fi
 
     echo "Checking activation changes without applying them..."
-    nixos-rebuild dry-activate --flake "$flake_ref"
+    nixos-rebuild dry-activate --impure --flake "$flake_ref"
 
     if [ "$mode" = build ]; then
       cat <<EOF
@@ -210,7 +247,7 @@ pkgs.writeShellApplication {
     Snapshot: $target
 
     From Ctrl+Alt+F3, activate it with:
-      sudo nixos-rebuild switch --flake '$flake_ref'
+      sudo nixos-rebuild switch --impure --flake '$flake_ref'
 
     Roll back with:
       sudo nixos-rebuild switch --rollback
@@ -220,7 +257,7 @@ pkgs.writeShellApplication {
 
     password_before="$(getent shadow "$migration_user" | cut -d: -f2)"
     echo "Activating UmbraOS in '$mode' mode..."
-    nixos-rebuild "$mode" --flake "$flake_ref"
+    nixos-rebuild "$mode" --impure --flake "$flake_ref"
     password_after="$(getent shadow "$migration_user" | cut -d: -f2)"
 
     if [ "$password_before" != "$password_after" ]; then
@@ -242,6 +279,7 @@ pkgs.writeShellApplication {
     UmbraOS '$mode' activation completed.
     Account preserved: $migration_user
     Password shadow entry: unchanged
+    Previous software profile: retained at low priority
     Snapshot: $target
 
     Roll back with:
