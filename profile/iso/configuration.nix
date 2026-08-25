@@ -76,6 +76,16 @@ in
   ];
 
   systemd.tmpfiles.rules = [
+    # The live profile consumes Home Manager's generated files without running
+    # its activation script, so create the XDG directory tree explicitly.
+    "d /home/nixos/Desktop 0755 nixos users - -"
+    "d /home/nixos/Downloads 0755 nixos users - -"
+    "d /home/nixos/Templates 0755 nixos users - -"
+    "d /home/nixos/Public 0755 nixos users - -"
+    "d /home/nixos/Documents 0755 nixos users - -"
+    "d /home/nixos/Music 0755 nixos users - -"
+    "d /home/nixos/Pictures 0755 nixos users - -"
+    "d /home/nixos/Videos 0755 nixos users - -"
     "d /home/nixos/.config 0755 nixos users - -"
     "d /home/nixos/.config/hypr 0755 nixos users - -"
     "d /home/nixos/.config/kitty 0755 nixos users - -"
@@ -84,6 +94,7 @@ in
     "d /home/nixos/.config/wofi 0755 nixos users - -"
     "d /home/nixos/.config/gtk-3.0 0755 nixos users - -"
     "d /home/nixos/.config/gtk-4.0 0755 nixos users - -"
+    "L+ /home/nixos/.config/user-dirs.dirs - nixos users - ${riceHome}/home-files/.config/user-dirs.dirs"
     "L+ /home/nixos/.config/hypr/hyprland.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprland.conf"
     "L+ /home/nixos/.config/hypr/hyprpaper.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprpaper.conf"
     "L+ /home/nixos/.config/hypr/hyprlock.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprlock.conf"
@@ -105,9 +116,9 @@ in
     chown -h nixos:users /home/nixos/Desktop/umbra-installer.desktop
   '';
 
-  # Umbra Installer is the sole supported OS installer. A constrained native
-  # Qt WebEngine window hosts the frontend; privileged operations remain in the
-  # Rust Unix-socket backend.
+  # Umbra Installer is the sole supported OS installer. A native eframe/egui
+  # frontend talks directly to the constrained Rust Unix-socket backend;
+  # privileged operations never run in the GUI process.
   environment.systemPackages = with pkgs; [
     umbraInstaller
     umbraInstallerAutostart

@@ -73,7 +73,7 @@
 
     # --- Buildable artifacts -------------------------------------------------
     packages.${system} = {
-      # The local HTML/CSS/JS installer and its constrained Bash backend.
+      # The native eframe/egui installer and its constrained Rust backend.
       # Useful as a standalone artifact for UI/backend testing.
       installer = import ./installer {
         inherit pkgs;
@@ -113,19 +113,6 @@
         inputs.home-manager.nixosModules.home-manager
         ./profile/default/hardware.nix
         ./profile/default/configuration.nix
-        ./compose.nix
-      ];
-    };
-    nixosConfigurations.dev = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = {
-        inherit inputs system settings unstable;
-        isLive = false;
-      };
-      modules = [
-        inputs.home-manager.nixosModules.home-manager
-        ./profile/default/hardware.nix
-        ./profile/default/configuration.nix
-        ./profile/dev/configuration.nix
         ./compose.nix
       ];
     };

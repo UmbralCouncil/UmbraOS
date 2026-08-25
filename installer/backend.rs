@@ -130,7 +130,7 @@ fn status_description(status: std::process::ExitStatus) -> String {
     }
 }
 
-fn diagnostic_tail(text: &str, limit: usize) -> String {
+fn output_tail(text: &str, limit: usize) -> String {
     let characters: Vec<char> = text.chars().collect();
     characters[characters.len().saturating_sub(limit)..]
         .iter()
@@ -214,9 +214,9 @@ fn streamed_output(program: &str, args: &[&str]) -> BackendResult<String> {
     let stderr = String::from_utf8_lossy(&stderr).trim().to_owned();
     if !status.success() {
         let details = if stderr.is_empty() {
-            diagnostic_tail(&stdout, 12_000)
+            output_tail(&stdout, 12_000)
         } else {
-            diagnostic_tail(&stderr, 12_000)
+            output_tail(&stderr, 12_000)
         };
         return Err(BackendError::internal(format!(
             "target system build failed with {status_text} after {elapsed}s\n\n{details}\n\nFull log: {LOG_PATH}"
@@ -349,12 +349,131 @@ fn validate_hostname(value: &str) -> bool {
 }
 
 fn validate_timezone(value: &str) -> bool {
-    value.contains('/')
+    !value.is_empty()
+        && !value.starts_with('/')
         && value.chars().all(|character| {
             character.is_ascii_alphanumeric()
                 || matches!(character, '_' | '+' | '-' | '/')
         })
         && Path::new("/etc/zoneinfo").join(value).exists()
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                escaped.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
+}
+
+fn split_nmcli_line(line: &str) -> Vec<String> {
+    let mut fields = vec![String::new()];
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            fields.last_mut().unwrap().push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == ':' {
+            fields.push(String::new());
+        } else {
+            fields.last_mut().unwrap().push(character);
+        }
+    }
+    if escaped {
+        fields.last_mut().unwrap().push('\\');
+    }
+    fields
+}
+
+fn wifi_response() -> BackendResult<String> {
+    let rows = output(
+        "nmcli",
+        &["-t", "--escape", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"],
+    )?;
+    let mut networks = Vec::new();
+    for line in rows.lines() {
+        let fields = split_nmcli_line(line);
+        if fields.len() != 4 || fields[1].is_empty() {
+            continue;
+        }
+        networks.push(format!(
+            "{{\"connected\":{},\"ssid\":{},\"signal\":{},\"security\":{}}}",
+            if fields[0] == "*" { "true" } else { "false" },
+            json_escape(&fields[1]),
+            fields[2].parse::<u8>().unwrap_or_default(),
+            json_escape(&fields[3]),
+        ));
+    }
+    let body = format!("{{\"networks\":[{}]}}", networks.join(","));
+    Ok(cgi_response(None, "application/json", &body))
+}
+
+fn connect_wifi(body: &str) -> BackendResult<String> {
+    let ssid = jq(body, ".ssid // empty")?;
+    let password = jq(body, ".password // empty")?;
+    if ssid.is_empty() || ssid.as_bytes().len() > 32 {
+        return Err(BackendError::client("invalid Wi-Fi network name"));
+    }
+    if !password.is_empty() && !(8..=63).contains(&password.len()) {
+        return Err(BackendError::client(
+            "Wi-Fi password must contain between 8 and 63 characters",
+        ));
+    }
+    let mut args = vec!["--wait", "30", "device", "wifi", "connect", ssid.as_str()];
+    if !password.is_empty() {
+        args.extend(["password", password.as_str()]);
+    }
+    output("nmcli", &args).map_err(|error| BackendError::client(error.message))?;
+    Ok(cgi_response(
+        None,
+        "application/json",
+        &format!("{{\"ok\":true,\"ssid\":{}}}", json_escape(&ssid)),
+    ))
+}
+
+fn time_response() -> BackendResult<String> {
+    let timezone = output("timedatectl", &["show", "--property=Timezone", "--value"])?;
+    let synchronized = output(
+        "timedatectl",
+        &["show", "--property=NTPSynchronized", "--value"],
+    )?;
+    let zones = output("timedatectl", &["list-timezones"])?;
+    let zones = zones.lines().map(json_escape).collect::<Vec<_>>().join(",");
+    let body = format!(
+        "{{\"timezone\":{},\"synchronized\":{},\"timezones\":[{}]}}",
+        json_escape(&timezone),
+        if synchronized == "yes" { "true" } else { "false" },
+        zones,
+    );
+    Ok(cgi_response(None, "application/json", &body))
+}
+
+fn set_time(body: &str) -> BackendResult<String> {
+    let timezone = jq(body, ".timezone // empty")?;
+    if !validate_timezone(&timezone) {
+        return Err(BackendError::client("invalid or unknown time zone"));
+    }
+    run("timedatectl", &["set-timezone", &timezone])?;
+    run("timedatectl", &["set-ntp", "true"])?;
+    Ok(cgi_response(
+        None,
+        "application/json",
+        &format!("{{\"ok\":true,\"timezone\":{}}}", json_escape(&timezone)),
+    ))
 }
 
 fn hash_password(password: &str) -> BackendResult<String> {
@@ -423,15 +542,6 @@ fn disks_response() -> BackendResult<String> {
     ))
 }
 
-fn log_response() -> BackendResult<String> {
-    let contents = fs::read_to_string(LOG_PATH).unwrap_or_default();
-    Ok(cgi_response(
-        None,
-        "text/plain; charset=utf-8",
-        &diagnostic_tail(&contents, 60_000),
-    ))
-}
-
 fn build_target_system() -> BackendResult<String> {
     let nixpkgs = format!("path:{NIXPKGS_SOURCE}");
     let nixpkgs_unstable = format!("path:{NIXPKGS_UNSTABLE_SOURCE}");
@@ -476,9 +586,8 @@ fn install_system(body: &str) -> BackendResult<String> {
     let password = jq(body, ".password // empty")?;
     let confirmation = jq(body, ".confirmation // empty")?;
 
-    // Each installation gets a fresh diagnostic transcript. Without this, the
-    // UI can surface a stale failure from an earlier attempt while the current
-    // backend is operating normally.
+    // Each installation gets a fresh log so an earlier failure cannot be
+    // mistaken for the current attempt.
     let _ = fs::write(LOG_PATH, "");
     log("========== installation request started ==========");
     log(&format!(
@@ -629,7 +738,20 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
         let body = jq(raw, ".body // {} | @json")?;
         match action.as_str() {
             "disks" => disks_response(),
-            "log" => log_response(),
+            "wifi" => wifi_response(),
+            "wifi-connect" => {
+                if method != "POST" {
+                    return Err(BackendError::client("POST required"));
+                }
+                connect_wifi(&body)
+            }
+            "time" => time_response(),
+            "time-set" => {
+                if method != "POST" {
+                    return Err(BackendError::client("POST required"));
+                }
+                set_time(&body)
+            }
             "install" => {
                 if method != "POST" {
                     return Err(BackendError::client("POST required"));
@@ -728,6 +850,7 @@ fn serve(socket: &str, token: String) -> BackendResult<()> {
 
     let token = Arc::new(token);
     let install_lock = Arc::new(Mutex::new(()));
+
     for connection in listener.incoming() {
         match connection {
             Ok(stream) => {

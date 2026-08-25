@@ -1,9 +1,10 @@
-{ pkgs, settings, ... }:
+{ lib, pkgs, settings, isLive ? false, ... }:
 {
   programs.zsh.enable = true;
-  users.users.${settings.account.name}.shell = pkgs.zsh;
+  users.users.${if isLive then "nixos" else settings.account.name}.shell = pkgs.zsh;
 
-  home-manager.users.${settings.account.name} = {
+  home-manager.users = lib.mkIf (!isLive) {
+    ${settings.account.name} = {
     programs.zsh = {
       enable = true;
       enableCompletion = true;
@@ -78,6 +79,7 @@
           style = "bold #50b7f5";
         };
       };
+    };
     };
   };
 }

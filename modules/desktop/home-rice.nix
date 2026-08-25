@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 let
   wallpaper = ../../assets/home_wallpaper.png;
   applicationButton = ../../assets/darkmode_application_button.svg;
@@ -17,12 +17,23 @@ in
     size = 24;
   };
 
+  # PCManFM exposes the standard XDG locations in its sidebar and uses
+  # XDG_DESKTOP_DIR for --desktop. Create them on first activation so fresh
+  # installs do not contain dead entries such as ~/Templates.
+  xdg.userDirs = {
+    enable = true;
+    createDirectories = true;
+    setSessionVariables = true;
+  };
+
   xdg.configFile = {
     "hypr/hyprland.conf".text = ''
       # UmbraOS — deliberately close to the default Hyprland experience.
       monitor = ,preferred,auto,1
 
-      exec-once = ${pkgs.hyprpaper}/bin/hyprpaper
+      # Pass the generated config explicitly. This avoids depending on
+      # Hyprpaper's HOME/XDG discovery during SDDM's live-user autologin.
+      exec-once = ${pkgs.hyprpaper}/bin/hyprpaper --config ${config.xdg.configHome}/hypr/hyprpaper.conf
       exec-once = ${pkgs.waybar}/bin/waybar
       exec-once = ${pkgs.mako}/bin/mako
       exec-once = ${pkgs.networkmanagerapplet}/bin/nm-applet --indicator
@@ -154,7 +165,9 @@ in
       ipc = true
 
       wallpaper {
-        monitor = *
+        # An empty monitor is Hyprpaper's fallback for every output that does
+        # not have a more specific wallpaper assignment.
+        monitor =
         path = ${wallpaper}
         fit_mode = cover
       }
