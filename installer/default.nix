@@ -1,9 +1,9 @@
 { pkgs, source, flakeInputs }:
 let
   runtimePath = pkgs.lib.makeBinPath [
-    pkgs.bash pkgs.coreutils pkgs.dosfstools pkgs.gawk pkgs.gnugrep pkgs.gnused
+    pkgs.bash pkgs.coreutils pkgs.curl pkgs.dosfstools pkgs.gawk pkgs.gnugrep pkgs.gnused
     pkgs.jq pkgs.nix pkgs.nixos-install-tools pkgs.networkmanager pkgs.parted
-    pkgs.systemd pkgs.util-linux pkgs.whois pkgs.btrfs-progs
+    pkgs.systemd pkgs.util-linux pkgs.btrfs-progs
   ];
 in
 pkgs.rustPlatform.buildRustPackage {
@@ -12,8 +12,9 @@ pkgs.rustPlatform.buildRustPackage {
   src = ./.;
   cargoLock.lockFile = ./Cargo.lock;
 
-  nativeBuildInputs = [ pkgs.pkg-config ];
+  nativeBuildInputs = [ pkgs.makeWrapper pkgs.pkg-config ];
   buildInputs = [
+    pkgs.libglvnd
     pkgs.libxkbcommon
     pkgs.wayland
     pkgs.libx11
@@ -28,6 +29,7 @@ pkgs.rustPlatform.buildRustPackage {
     substitute ${./backend.rs} backend-generated.rs \
       --replace-fail @PATH@ '${runtimePath}' \
       --replace-fail @NIX@ '${pkgs.nix}/bin/nix' \
+      --replace-fail @MKPASSWD@ '${pkgs.mkpasswd}/bin/mkpasswd' \
       --replace-fail @UMBRA_SOURCE@ '${source}' \
       --replace-fail @NIXPKGS_SOURCE@ '${flakeInputs.nixpkgs}' \
       --replace-fail @NIXPKGS_UNSTABLE_SOURCE@ '${flakeInputs.nixpkgs-unstable}' \
@@ -35,6 +37,17 @@ pkgs.rustPlatform.buildRustPackage {
       --replace-fail @MICROVM_SOURCE@ '${flakeInputs.microvm}' \
       --replace-fail @SPECTRUM_SOURCE@ '${flakeInputs.microvm.inputs.spectrum}'
     rustc --edition=2021 -O backend-generated.rs -o "$out/libexec/umbra-installer/backend"
+    wrapProgram "$out/bin/umbra-installer-ui" \
+      --prefix LD_LIBRARY_PATH : /run/opengl-driver/lib:${pkgs.lib.makeLibraryPath [
+        pkgs.libglvnd
+        pkgs.libxkbcommon
+        pkgs.wayland
+        pkgs.libx11
+        pkgs.libxcursor
+        pkgs.libxi
+        pkgs.libxrandr
+      ]} \
+      --set-default __EGL_VENDOR_LIBRARY_DIRS /run/opengl-driver/share/glvnd/egl_vendor.d
     cp ${../assets/install.png} "$out/share/icons/hicolor/256x256/apps/umbra-installer.png"
     substitute ${./launch.sh} "$out/bin/umbra-installer" \
       --replace-fail @BACKEND@ "$out/libexec/umbra-installer/backend" \

@@ -73,6 +73,9 @@
 
     # --- Buildable artifacts -------------------------------------------------
     packages.${system} = {
+      # `nix build` at the repository root builds the primary distributable.
+      default = inputs.self.nixosConfigurations.umbra-live.config.system.build.isoImage;
+
       # The native eframe/egui installer and its constrained Rust backend.
       # Useful as a standalone artifact for UI/backend testing.
       installer = import ./installer {

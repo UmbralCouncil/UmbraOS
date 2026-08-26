@@ -6,8 +6,13 @@ let
   # have. tmpfiles installs this immutable generation before login instead.
   riceHome = (inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
+    extraSpecialArgs = {
+      settings = null;
+      isLive = true;
+    };
     modules = [
       ../../modules/desktop/home-rice.nix
+      ../../modules/commands/shell.nix
       {
         home = {
           username = "nixos";
@@ -94,6 +99,7 @@ in
     "d /home/nixos/.config/wofi 0755 nixos users - -"
     "d /home/nixos/.config/gtk-3.0 0755 nixos users - -"
     "d /home/nixos/.config/gtk-4.0 0755 nixos users - -"
+    "L+ /home/nixos/.zshrc - nixos users - ${riceHome}/home-files/.zshrc"
     "L+ /home/nixos/.config/user-dirs.dirs - nixos users - ${riceHome}/home-files/.config/user-dirs.dirs"
     "L+ /home/nixos/.config/hypr/hyprland.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprland.conf"
     "L+ /home/nixos/.config/hypr/hyprpaper.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprpaper.conf"
