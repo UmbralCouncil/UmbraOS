@@ -1,4 +1,4 @@
-# UmbraOS live/installer ISO — the graphical Hyprland image users boot to try
+# UmbraOS live/installer ISO — the graphical Plasma image users boot to try
 # or install Umbra, and the vehicle that seeds the freely-redistributable lab
 # base images onto the medium.
 #
@@ -8,7 +8,7 @@
 # The ISO name / volume ID are deliberately left to profile/iso/configuration.nix
 # (which mkForces the UmbraOS identity); this module does not fight that.
 #
-# The shared Hyprland module owns the compositor, SDDM, and lightweight desktop
+# The shared KDE module owns Plasma, SDDM, and the conventional desktop
 # utilities. The live profile only adds SDDM autologin for the installer user.
 { config, lib, pkgs, modulesPath, ... }:
 let
@@ -16,11 +16,12 @@ let
 in
 {
   imports = [
-    # NixOS graphical live base. Umbra supplies Hyprland and its own installer;
+    # NixOS graphical live base. Umbra supplies Plasma and its own installer;
     # importing the Calamares profile here would ship and auto-start a second,
     # unrelated installer.
     "${modulesPath}/installer/cd-dvd/installation-cd-graphical-base.nix"
-    ../desktop/hyprland.nix
+    ../desktop/kde.nix
+    ../accessibility.nix
     # umbra microVM host, so the live session can run labs out of the box.
     ../virt/core.nix
   ];

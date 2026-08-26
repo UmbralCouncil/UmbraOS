@@ -3,10 +3,8 @@
 { settings, inputs, system, lib, isLive ? false, ... }: {
   imports = [
     ./modules/branding.nix
-    ./modules/desktop/rice.nix
   ] ++ lib.optional (!isLive) {
     home-manager.users.${settings.account.name} = {
-      imports = [ ./modules/desktop/home-rice.nix ];
       programs.home-manager.enable = true;
       home.stateVersion = "25.05";
     };
