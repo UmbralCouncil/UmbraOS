@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const RUNTIME_PATH: &str = "@PATH@";
 const NIX_BIN: &str = "@NIX@";
+const MKPASSWD_BIN: &str = "@MKPASSWD@";
 const UMBRA_SOURCE: &str = "@UMBRA_SOURCE@";
 const NIXPKGS_SOURCE: &str = "@NIXPKGS_SOURCE@";
 const NIXPKGS_UNSTABLE_SOURCE: &str = "@NIXPKGS_UNSTABLE_SOURCE@";
@@ -438,6 +439,12 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
         args.extend(["password", password.as_str()]);
     }
     output("nmcli", &args).map_err(|error| BackendError::client(error.message))?;
+    synchronize_clock().map_err(|error| {
+        BackendError::client(format!(
+            "Wi-Fi connected, but clock synchronization failed: {}",
+            error.message
+        ))
+    })?;
     Ok(cgi_response(
         None,
         "application/json",
@@ -462,13 +469,76 @@ fn time_response() -> BackendResult<String> {
     Ok(cgi_response(None, "application/json", &body))
 }
 
+fn synchronize_clock() -> BackendResult<()> {
+    run("timedatectl", &["set-ntp", "true"])?;
+    if output(
+        "timedatectl",
+        &["show", "--property=NTPSynchronized", "--value"],
+    )
+    .is_ok_and(|value| value == "yes")
+    {
+        return Ok(());
+    }
+    // NetworkManager may have acquired connectivity after timesyncd's initial
+    // boot attempt. Restart it so machines with a dead CMOS clock do not carry
+    // an invalid date into HTTPS certificate validation.
+    run("systemctl", &["restart", "systemd-timesyncd.service"])?;
+    for _ in 0..20 {
+        if output(
+            "timedatectl",
+            &["show", "--property=NTPSynchronized", "--value"],
+        )
+        .is_ok_and(|value| value == "yes")
+        {
+            log("system clock synchronized through NTP");
+            return Ok(());
+        }
+        thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    // Some tethering solutions route TCP but block NTP's UDP/123. Bootstrap a
+    // dead-CMOS clock from an HTTP Date header, then let the subsequent HTTPS
+    // connectivity check validate that the resulting time is usable for TLS.
+    let headers = output(
+        "curl",
+        &[
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--head",
+            "--max-time",
+            "15",
+            "http://cache.nixos.org/",
+        ],
+    )
+    .map_err(|error| {
+        BackendError::client(format!(
+            "NTP is unavailable and the HTTP clock bootstrap failed: {}",
+            error.message
+        ))
+    })?;
+    let server_date = headers
+        .lines()
+        .find_map(|line| {
+            line.split_once(':').and_then(|(name, value)| {
+                name.eq_ignore_ascii_case("date")
+                    .then(|| value.trim().trim_end_matches('\r'))
+            })
+        })
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| BackendError::client("the HTTP clock response contained no Date header"))?;
+    run("date", &["--utc", "--set", server_date])?;
+    log(&format!("system clock bootstrapped from HTTP Date: {server_date}"));
+    Ok(())
+}
+
 fn set_time(body: &str) -> BackendResult<String> {
     let timezone = jq(body, ".timezone // empty")?;
     if !validate_timezone(&timezone) {
         return Err(BackendError::client("invalid or unknown time zone"));
     }
     run("timedatectl", &["set-timezone", &timezone])?;
-    run("timedatectl", &["set-ntp", "true"])?;
+    synchronize_clock()?;
     Ok(cgi_response(
         None,
         "application/json",
@@ -477,7 +547,7 @@ fn set_time(body: &str) -> BackendResult<String> {
 }
 
 fn hash_password(password: &str) -> BackendResult<String> {
-    let mut child = Command::new("mkpasswd")
+    let mut child = Command::new(MKPASSWD_BIN)
         .args(["-m", "yescrypt", "--stdin"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -578,6 +648,29 @@ fn build_target_system() -> BackendResult<String> {
     streamed_output(NIX_BIN, &args)
 }
 
+fn require_internet() -> BackendResult<()> {
+    synchronize_clock()?;
+    output(
+        "curl",
+        &[
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--head",
+            "--max-time",
+            "15",
+            "https://cache.nixos.org/",
+        ],
+    )
+    .map(|_| ())
+    .map_err(|error| {
+        BackendError::client(format!(
+            "an internet connection is required before installation: {}",
+            error.message
+        ))
+    })
+}
+
 fn install_system(body: &str) -> BackendResult<String> {
     let mode = jq(body, ".mode // empty")?;
     let username = jq(body, ".username // empty")?;
@@ -611,6 +704,9 @@ fn install_system(body: &str) -> BackendResult<String> {
             "Umbra Installer currently requires UEFI boot",
         ));
     }
+    // Fail before partitioning so a missing network can never leave the target
+    // disk erased but uninstalled.
+    require_internet()?;
 
     let (root, esp) = if mode == "erase" {
         let disk = jq(body, ".disk // empty")?;
@@ -700,7 +796,7 @@ fn install_system(body: &str) -> BackendResult<String> {
     fs::write("/mnt/etc/umbra/installer-settings.nix", settings)
         .map_err(|error| BackendError::internal(format!("could not write settings: {error}")))?;
 
-    log("building target system from ISO-pinned flake inputs");
+    log("building target system online from ISO-pinned flake inputs");
     let system_path = build_target_system()?;
     if system_path.is_empty() {
         return Err(BackendError::internal(
