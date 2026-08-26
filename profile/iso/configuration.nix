@@ -1,17 +1,16 @@
 { inputs, pkgs, lib, config, ... }:
 let
-  # Build the live rice independently from the NixOS Home Manager module. The
+  # Build only the live shell independently from the NixOS Home Manager module. The
   # ephemeral `nixos` account must not gain a Home Manager systemd service:
   # activation expects a persistent user profile, which the live image does not
   # have. tmpfiles installs this immutable generation before login instead.
-  riceHome = (inputs.home-manager.lib.homeManagerConfiguration {
+  shellHome = (inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
     extraSpecialArgs = {
       settings = null;
       isLive = true;
     };
     modules = [
-      ../../modules/desktop/home-rice.nix
       ../../modules/commands/shell.nix
       {
         home = {
@@ -32,19 +31,15 @@ let
     name = "umbra-installer";
     package = umbraInstaller;
   };
-  liveHyprlandConfig = pkgs.writeText "umbra-live.conf" ''
-    exec-once = ${umbraInstaller}/bin/umbra-installer
-  '';
-
 in
 {
   imports = [
-    # The graphical Hyprland live/installer base and the live desktop come from
+    # The graphical Plasma live/installer base and desktop come from
     # ../../modules/iso (wired into the umbra-live flake output). Umbra replaces
-    # the base profile's installer flow with its own local web UI and constrained
+    # the base profile's installer flow with its own native GUI and constrained
     # Rust backend. This profile only layers the Umbra-specific live-session UX
     # and shared tooling on top; it must not re-import the graphical base or
-    # ../../modules/desktop/hyprland.nix because the ISO module owns it.
+    # ../../modules/desktop/kde.nix because the ISO module owns it.
     ../../modules/apps/software.nix
     ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
@@ -91,28 +86,7 @@ in
     "d /home/nixos/Music 0755 nixos users - -"
     "d /home/nixos/Pictures 0755 nixos users - -"
     "d /home/nixos/Videos 0755 nixos users - -"
-    "d /home/nixos/.config 0755 nixos users - -"
-    "d /home/nixos/.config/hypr 0755 nixos users - -"
-    "d /home/nixos/.config/kitty 0755 nixos users - -"
-    "d /home/nixos/.config/mako 0755 nixos users - -"
-    "d /home/nixos/.config/waybar 0755 nixos users - -"
-    "d /home/nixos/.config/wofi 0755 nixos users - -"
-    "d /home/nixos/.config/gtk-3.0 0755 nixos users - -"
-    "d /home/nixos/.config/gtk-4.0 0755 nixos users - -"
-    "L+ /home/nixos/.zshrc - nixos users - ${riceHome}/home-files/.zshrc"
-    "L+ /home/nixos/.config/user-dirs.dirs - nixos users - ${riceHome}/home-files/.config/user-dirs.dirs"
-    "L+ /home/nixos/.config/hypr/hyprland.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprland.conf"
-    "L+ /home/nixos/.config/hypr/hyprpaper.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprpaper.conf"
-    "L+ /home/nixos/.config/hypr/hyprlock.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprlock.conf"
-    "L+ /home/nixos/.config/hypr/live.conf - nixos users - ${liveHyprlandConfig}"
-    "L+ /home/nixos/.config/kitty/kitty.conf - nixos users - ${riceHome}/home-files/.config/kitty/kitty.conf"
-    "L+ /home/nixos/.config/mako/config - nixos users - ${riceHome}/home-files/.config/mako/config"
-    "L+ /home/nixos/.config/waybar/config.jsonc - nixos users - ${riceHome}/home-files/.config/waybar/config.jsonc"
-    "L+ /home/nixos/.config/waybar/style.css - nixos users - ${riceHome}/home-files/.config/waybar/style.css"
-    "L+ /home/nixos/.config/wofi/config - nixos users - ${riceHome}/home-files/.config/wofi/config"
-    "L+ /home/nixos/.config/wofi/style.css - nixos users - ${riceHome}/home-files/.config/wofi/style.css"
-    "L+ /home/nixos/.config/gtk-3.0/settings.ini - nixos users - ${riceHome}/home-files/.config/gtk-3.0/settings.ini"
-    "L+ /home/nixos/.config/gtk-4.0/settings.ini - nixos users - ${riceHome}/home-files/.config/gtk-4.0/settings.ini"
+    "L+ /home/nixos/.zshrc - nixos users - ${shellHome}/home-files/.zshrc"
   ];
 
   system.activationScripts.installerDesktop = ''

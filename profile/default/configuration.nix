@@ -1,7 +1,8 @@
 { pkgs, ... }: {
   imports = [
     # Import any modules or take them out
-    ../../modules/desktop/hyprland.nix
+    ../../modules/desktop/kde.nix
+    ../../modules/accessibility.nix
     ../../modules/apps/software.nix
     ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
