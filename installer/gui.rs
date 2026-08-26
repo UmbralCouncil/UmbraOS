@@ -127,7 +127,7 @@ impl Installer {
         let repaint = context.clone();
         let log_tx = tx.clone();
         thread::spawn(move || {
-            let child = Command::new("tail").args(["-n", "80", "-f", LOG]).stdout(Stdio::piped()).spawn();
+            let child = Command::new("tail").args(["-f", LOG]).stdout(Stdio::piped()).spawn();
             if let Ok(mut child) = child {
                 if let Some(stdout) = child.stdout.take() {
                     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -223,7 +223,7 @@ impl Installer {
                 ui.label(RichText::new(&self.time_status).small());
             });
         });
-        ui.add_space(12.0); ui.label("Ethernet works automatically. Accurate time is required for secure package downloads.");
+        ui.add_space(12.0); ui.label("Networking is optional: UmbraOS installs fully offline. Ethernet works automatically when available.");
     }
 
     fn mode(&mut self, ui: &mut egui::Ui) {
