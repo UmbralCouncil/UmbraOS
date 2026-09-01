@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "courses": [
+    {
+      "id": "data-forensics-foundations",
+      "title": "Data Forensics Foundations",
+      "description": "Twenty beginner labs covering evidence integrity, metadata, logs, archives, deleted-file recovery, SQLite artifacts, and timeline reconstruction.",
+      "author": "Umbra Project",
+      "version": "1.0.0",
+      "flake": "github:UmbralCouncil/data-forensics/2d6a0ce8f80b10c6582155acb9507c0758d75f82#umbra-course",
+      "tags": ["beginner", "forensics", "defensive", "official"],
+      "featured": true
+    }
+  ]
+}

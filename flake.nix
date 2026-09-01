@@ -96,6 +96,12 @@
       images-json =
         inputs.self.nixosConfigurations.umbra-live.config.environment.etc."umbra/images.json".source;
 
+      # Public, reviewable Umbra Store catalog. Studio fetches this output from
+      # the Git repository and caches the last valid copy for offline use.
+      course-registry = pkgs.runCommand "umbra-course-registry" { } ''
+        install -Dm644 ${./course-registry.json} $out/registry.json
+      '';
+
       # Guarded host migration helper. It creates a private, host-specific copy
       # of this flake; normal source builds never contain machine-local data.
       migrate = import ./tools/migrate {
@@ -131,6 +137,16 @@
         ./modules/iso
         ./modules/labs/images
         ./compose.nix
+      ];
+    };
+
+    # Open, reproducible guest used by the Umbra Core course. The proprietary
+    # Studio GUI is distributed separately as a prebuilt binary.
+    nixosConfigurations.umbra-core-lab = inputs.nixpkgs.lib.nixosSystem {
+      inherit system;
+      modules = [
+        inputs.microvm.nixosModules.microvm
+        ./modules/studio/core-lab.nix
       ];
     };
   } // inputs.nixpkgs.lib.optionalAttrs migrationAvailable {
