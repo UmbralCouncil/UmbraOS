@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+lock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/umbra-installer.lock"
+exec 9>"$lock"
+@FLOCK@ -n 9 || exit 0
 token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 socket="/run/umbra-installer/backend.sock"
 cleanup() {

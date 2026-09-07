@@ -51,7 +51,8 @@ pkgs.rustPlatform.buildRustPackage {
     cp ${../assets/install.png} "$out/share/icons/hicolor/256x256/apps/umbra-installer.png"
     substitute ${./launch.sh} "$out/bin/umbra-installer" \
       --replace-fail @BACKEND@ "$out/libexec/umbra-installer/backend" \
-      --replace-fail @GUI@ "$out/bin/umbra-installer-ui"
+      --replace-fail @GUI@ "$out/bin/umbra-installer-ui" \
+      --replace-fail @FLOCK@ "${pkgs.util-linux}/bin/flock"
     chmod +x "$out/bin/umbra-installer"
     cat > "$out/share/applications/umbra-installer.desktop" <<EOF
     [Desktop Entry]

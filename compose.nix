@@ -72,6 +72,12 @@
 
   hardware.graphics.enable = true;
 
+  # Guest agents are inert on physical hardware and activate only under their
+  # matching hypervisor. Keep display resizing, clipboard integration, virtual
+  # storage and clean shutdown working after installation as well as on the ISO.
+  services.qemuGuest.enable = true;
+  virtualisation.vmware.guest.enable = true;
+
   /* Compressed memory */
   services.zram-generator.enable = true;
 

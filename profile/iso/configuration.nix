@@ -28,10 +28,6 @@ let
     source = inputs.self;
     flakeInputs = inputs;
   };
-  umbraInstallerAutostart = pkgs.makeAutostartItem {
-    name = "umbra-installer";
-    package = umbraInstaller;
-  };
   liveNiriConfig = pkgs.writeText "umbra-live.kdl" ''
     spawn-at-startup "${umbraInstaller}/bin/umbra-installer"
   '';
@@ -127,7 +123,6 @@ in
   # privileged operations never run in the GUI process.
   environment.systemPackages = with pkgs; [
     umbraInstaller
-    umbraInstallerAutostart
     git
     parted
     gptfdisk
