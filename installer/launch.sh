@@ -6,7 +6,9 @@ cleanup() {
   [ -n "${backend_pid:-}" ] && sudo @BACKEND@ stop 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
-sudo @BACKEND@ serve "$socket" "$token" &
+# Feed the capability over stdin so it never appears in the root process's
+# command line. The Unix socket remains restricted to the live account.
+sudo @BACKEND@ serve "$socket" <<<"$token" &
 backend_pid=$!
 for _ in $(seq 1 50); do
   if [ -S "$socket" ]; then break; fi
@@ -15,4 +17,4 @@ done
 [ -S "$socket" ] || { echo "privileged installer backend did not start" >&2; exit 1; }
 # The native egui process owns the window lifetime. When it exits, this
 # script's trap tears down the privileged backend.
-@GUI@ "$token"
+@GUI@ <<<"$token"

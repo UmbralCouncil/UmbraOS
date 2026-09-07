@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 const SOCKET: &str = "/run/umbra-installer/backend.sock";
-const LOG: &str = "/tmp/umbra-installer.log";
+const LOG: &str = "/run/umbra-installer/install.log";
 const INK: Color32 = Color32::from_rgb(7, 16, 51);
 const CARD: Color32 = Color32::from_rgb(12, 25, 70);
 const CARD_RAISED: Color32 = Color32::from_rgb(17, 33, 82);
@@ -66,6 +66,7 @@ enum Event {
     WifiConnected(Result<String, String>),
     Time(Result<TimeResponse, String>),
     TimeSet(Result<String, String>),
+    TimeManuallySet(Result<String, String>),
     Installed(Result<String, String>),
     Log(String),
 }
@@ -85,6 +86,7 @@ struct Installer {
     timezone: String,
     timezones: Vec<String>,
     time_filter: String,
+    manual_time: String,
     time_status: String,
     username: String,
     hostname: String,
@@ -149,7 +151,7 @@ impl Installer {
             token, step: 0, mode: InstallMode::Erase, disks: vec![], target_disk: String::new(),
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
             wifi_password: String::new(), wifi_status: "Scanning…".into(), timezone: "America/New_York".into(),
-            timezones: vec![], time_filter: String::new(), time_status: "Checking…".into(),
+            timezones: vec![], time_filter: String::new(), manual_time: String::new(), time_status: "Checking…".into(),
             username: "umbra".into(), hostname: "umbra".into(), password: String::new(),
             password2: String::new(), confirmation: String::new(), busy: false, installing: false,
             result: String::new(), logs: vec![], tx, rx,
@@ -190,6 +192,7 @@ impl Installer {
                 Event::WifiConnected(result) => { self.busy = false; match result { Ok(ssid) => { self.wifi_password.clear(); self.wifi_status = format!("Connected to {ssid}"); }, Err(error) => self.wifi_status = error } }
                 Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; self.time_status = if data.synchronized { "Clock synchronized" } else { "Waiting for NTP" }.into(); }, Err(error) => self.time_status = error },
                 Event::TimeSet(result) => { self.busy = false; match result { Ok(zone) => self.time_status = format!("{zone}; clock synchronized"), Err(error) => self.time_status = error } }
+                Event::TimeManuallySet(result) => { self.busy = false; match result { Ok(value) => self.time_status = format!("Clock set to {value}; HTTPS verified"), Err(error) => self.time_status = error } }
                 Event::Installed(result) => { self.busy = false; self.installing = false; self.result = result.unwrap_or_else(|e| e); }
                 Event::Log(line) => { self.logs.push(line); if self.logs.len() > 500 { self.logs.drain(..100); } }
             }
@@ -261,6 +264,14 @@ impl Installer {
                     self.busy = true; let zone = self.timezone.clone();
                     spawn_rpc::<Value, _>(self.token.clone(), "time-set", json!({"timezone": zone}), self.tx.clone(), move |r| Event::TimeSet(r.map(|_| zone)));
                 }
+                ui.separator();
+                let manual_label = ui.label("Manual time if NTP is blocked (example: 2026-09-07 14:30)");
+                ui.add(egui::TextEdit::singleline(&mut self.manual_time)).labelled_by(manual_label.id);
+                if ui.add_enabled(!self.busy && !self.manual_time.is_empty(), egui::Button::new("Set time and verify HTTPS")).clicked() {
+                    self.busy = true;
+                    let value = self.manual_time.clone();
+                    spawn_rpc::<Value, _>(self.token.clone(), "time-manual", json!({"time": value}), self.tx.clone(), move |r| Event::TimeManuallySet(r.map(|_| value)));
+                }
                 ui.add_space(8.0); ui.label(RichText::new(&self.time_status).small().color(MUTED));
             });
         });
@@ -327,7 +338,7 @@ impl Installer {
         if self.installing || !self.logs.is_empty() {
             ui.add_space(12.0);
             egui::Frame::new().fill(Color32::from_rgb(3, 8, 27)).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                ui.label(RichText::new("●  LIVE INSTALL LOG    /tmp/umbra-installer.log").monospace().size(11.0).color(BLUE));
+                ui.label(RichText::new("●  LIVE INSTALL LOG    /run/umbra-installer/install.log").monospace().size(11.0).color(BLUE));
                 ui.separator();
                 egui::ScrollArea::vertical().stick_to_bottom(true).max_height(220.0).show(ui, |ui| { for line in &self.logs { ui.label(RichText::new(line).monospace().small().color(Color32::from_rgb(195, 205, 225))); } });
             });
@@ -407,7 +418,10 @@ impl eframe::App for Installer {
 }
 
 fn main() -> eframe::Result {
-    let token = std::env::args().nth(1).expect("usage: umbra-installer-ui TOKEN");
+    let mut token = String::new();
+    std::io::stdin().read_line(&mut token).expect("could not read installer capability");
+    let token = token.trim().to_owned();
+    assert!(!token.is_empty(), "installer capability was empty");
     let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("Install UmbraOS").with_inner_size([920.0, 680.0]).with_min_inner_size([800.0, 560.0]), ..Default::default() };
     eframe::run_native("UmbraOS Installer", options, Box::new(move |creation| {
         let mut visuals = egui::Visuals::dark();

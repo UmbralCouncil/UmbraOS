@@ -29,11 +29,18 @@
     # Migration deliberately leaves the password unspecified. With the NixOS
     # default `users.mutableUsers = true`, the existing /etc/shadow entry is
     # retained byte-for-byte rather than copied into the world-readable store.
-    // lib.optionalAttrs (!(settings.account.preservePassword or false)) {
-      # Default login password is "umbra" (SHA-512 crypt). Change this before
-      # any non-lab deployment — it is a well-known default, like other
-      # security distros ship.
-      hashedPassword = settings.account.hashedPassword;
+    // lib.optionalAttrs (
+      !(settings.account.preservePassword or false)
+      && settings.account ? hashedPasswordFile
+    ) {
+      hashedPasswordFile = settings.account.hashedPasswordFile;
+    }
+    // lib.optionalAttrs (
+      !(settings.account.preservePassword or false)
+      && !(settings.account ? hashedPasswordFile)
+    ) {
+      # Non-installer builds remain locked unless explicitly configured.
+      hashedPassword = settings.account.hashedPassword or "!";
     };
 
     systemd.services."home-manager-${settings.account.name}".serviceConfig = {

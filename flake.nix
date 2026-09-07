@@ -16,7 +16,9 @@
       hostName = "umbra";
       account = {
         name = "Umbra";
-        hashedPassword = "$6$89mU305uYn2drBI4$8JuEj/ky8FJRlxzCs8Orb05i6rswJIxNaiNdg21o51s7qrO9VMF4/j8bWhvAnD.xDEiEYiBIe7VGHYquhEx42/";
+        # Direct builds are locked. The installer supplies a root-only
+        # hashedPasswordFile outside the flake and therefore outside the store.
+        hashedPassword = "!";
       };
       /* We can set variables here and use them elsewhere. */
       /* Example: */

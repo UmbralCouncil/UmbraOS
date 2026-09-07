@@ -19,7 +19,7 @@ const NIXPKGS_UNSTABLE_SOURCE: &str = "@NIXPKGS_UNSTABLE_SOURCE@";
 const HOME_MANAGER_SOURCE: &str = "@HOME_MANAGER_SOURCE@";
 const MICROVM_SOURCE: &str = "@MICROVM_SOURCE@";
 const SPECTRUM_SOURCE: &str = "@SPECTRUM_SOURCE@";
-const LOG_PATH: &str = "/tmp/umbra-installer.log";
+const LOG_PATH: &str = "/run/umbra-installer/install.log";
 const BACKEND_SOCKET: &str = "/run/umbra-installer/backend.sock";
 const BACKEND_PID: &str = "/run/umbra-installer/backend.pid";
 
@@ -434,11 +434,28 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
             "Wi-Fi password must contain between 8 and 63 characters",
         ));
     }
-    let mut args = vec!["--wait", "30", "device", "wifi", "connect", ssid.as_str()];
+    let mut command = Command::new("nmcli");
+    command.args([
+        "--wait", "30", "--passwd-file", "/proc/self/fd/0",
+        "device", "wifi", "connect", ssid.as_str(),
+    ]);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| {
+        BackendError::internal(format!("could not start nmcli: {error}"))
+    })?;
     if !password.is_empty() {
-        args.extend(["password", password.as_str()]);
+        child.stdin.take().ok_or_else(|| BackendError::internal("nmcli stdin unavailable"))?
+            .write_all(format!("802-11-wireless-security.psk:{password}\n").as_bytes())
+            .map_err(|error| BackendError::internal(format!("could not send Wi-Fi secret to nmcli: {error}")))?;
     }
-    output("nmcli", &args).map_err(|error| BackendError::client(error.message))?;
+    let result = child.wait_with_output().map_err(|error| {
+        BackendError::internal(format!("could not read nmcli output: {error}"))
+    })?;
+    if !result.status.success() {
+        return Err(BackendError::client(format!(
+            "nmcli failed: {}", String::from_utf8_lossy(&result.stderr).trim()
+        )));
+    }
     synchronize_clock().map_err(|error| {
         BackendError::client(format!(
             "Wi-Fi connected, but clock synchronization failed: {}",
@@ -496,40 +513,31 @@ fn synchronize_clock() -> BackendResult<()> {
         thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // Some tethering solutions route TCP but block NTP's UDP/123. Bootstrap a
-    // dead-CMOS clock from an HTTP Date header, then let the subsequent HTTPS
-    // connectivity check validate that the resulting time is usable for TLS.
-    let headers = output(
+    Err(BackendError::client(
+        "NTP is unavailable. Enter the current date and time manually, then verify HTTPS.",
+    ))
+}
+
+fn verify_https() -> BackendResult<()> {
+    output(
         "curl",
-        &[
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--head",
-            "--max-time",
-            "15",
-            "http://cache.nixos.org/",
-        ],
+        &["--fail", "--silent", "--show-error", "--head", "--max-time", "15", "https://cache.nixos.org/"],
     )
-    .map_err(|error| {
-        BackendError::client(format!(
-            "NTP is unavailable and the HTTP clock bootstrap failed: {}",
-            error.message
-        ))
-    })?;
-    let server_date = headers
-        .lines()
-        .find_map(|line| {
-            line.split_once(':').and_then(|(name, value)| {
-                name.eq_ignore_ascii_case("date")
-                    .then(|| value.trim().trim_end_matches('\r'))
-            })
-        })
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| BackendError::client("the HTTP clock response contained no Date header"))?;
-    run("date", &["--utc", "--set", server_date])?;
-    log(&format!("system clock bootstrapped from HTTP Date: {server_date}"));
-    Ok(())
+    .map(|_| ())
+    .map_err(|error| BackendError::client(format!("HTTPS verification failed: {}", error.message)))
+}
+
+fn set_manual_time(body: &str) -> BackendResult<String> {
+    let value = jq(body, ".time // empty")?;
+    if value.is_empty() || value.len() > 40 || !value.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | ':' | 'T' | 'Z' | '+' | ' ')) {
+        return Err(BackendError::client("invalid manual date/time"));
+    }
+    run("timedatectl", &["set-ntp", "false"])?;
+    let result = run("date", &["--utc", "--set", &value]).and_then(|_| verify_https());
+    let restore_result = run("timedatectl", &["set-ntp", "true"]);
+    result?;
+    restore_result?;
+    Ok(cgi_response(None, "application/json", "{\"ok\":true}"))
 }
 
 fn set_time(body: &str) -> BackendResult<String> {
@@ -650,25 +658,15 @@ fn build_target_system() -> BackendResult<String> {
 
 fn require_internet() -> BackendResult<()> {
     synchronize_clock()?;
-    output(
-        "curl",
-        &[
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--head",
-            "--max-time",
-            "15",
-            "https://cache.nixos.org/",
-        ],
-    )
-    .map(|_| ())
-    .map_err(|error| {
-        BackendError::client(format!(
-            "an internet connection is required before installation: {}",
-            error.message
-        ))
-    })
+    verify_https()
+}
+
+fn partition_by_number(disk: &str, number: &str) -> BackendResult<String> {
+    let rows = output("lsblk", &["-lnpo", "PATH,PARTN", "--", disk])?;
+    rows.lines()
+        .filter_map(|line| line.rsplit_once(char::is_whitespace))
+        .find_map(|(path, partn)| (partn.trim() == number).then(|| path.trim().to_owned()))
+        .ok_or_else(|| BackendError::internal(format!("could not discover partition {number} on {disk}")))
 }
 
 fn install_system(body: &str) -> BackendResult<String> {
@@ -731,13 +729,8 @@ fn install_system(body: &str) -> BackendResult<String> {
         )?;
         run("partprobe", &[&disk])?;
         run("udevadm", &["settle"])?;
-        let separator = if disk.contains("nvme") || disk.contains("mmcblk") {
-            "p"
-        } else {
-            ""
-        };
-        let esp = format!("{disk}{separator}1");
-        let root = format!("{disk}{separator}2");
+        let esp = partition_by_number(&disk, "1")?;
+        let root = partition_by_number(&disk, "2")?;
         run("mkfs.fat", &["-F", "32", "-n", "UMBRA_EFI", &esp])?;
         (root, esp)
     } else if mode == "manual" {
@@ -791,8 +784,12 @@ fn install_system(body: &str) -> BackendResult<String> {
 
     let password_hash = hash_password(&password)?;
     let settings = format!(
-        "{{\n  timeZone = \"{timezone}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPassword = \"{password_hash}\";\n  }};\n}}\n"
+        "{{\n  timeZone = \"{timezone}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPasswordFile = \"/etc/umbra-password-hash\";\n  }};\n}}\n"
     );
+    fs::write("/mnt/etc/umbra-password-hash", format!("{password_hash}\n"))
+        .map_err(|error| BackendError::internal(format!("could not write password hash: {error}")))?;
+    fs::set_permissions("/mnt/etc/umbra-password-hash", fs::Permissions::from_mode(0o600))
+        .map_err(|error| BackendError::internal(format!("could not secure password hash: {error}")))?;
     fs::write("/mnt/etc/umbra/installer-settings.nix", settings)
         .map_err(|error| BackendError::internal(format!("could not write settings: {error}")))?;
 
@@ -847,6 +844,12 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
                     return Err(BackendError::client("POST required"));
                 }
                 set_time(&body)
+            }
+            "time-manual" => {
+                if method != "POST" {
+                    return Err(BackendError::client("POST required"));
+                }
+                set_manual_time(&body)
             }
             "install" => {
                 if method != "POST" {
@@ -929,6 +932,12 @@ fn serve(socket: &str, token: String) -> BackendResult<()> {
         .to_str()
         .ok_or_else(|| BackendError::internal("socket directory is not valid UTF-8"))?;
     run("chown", &["root:users", parent_text])?;
+    let _ = fs::remove_file(LOG_PATH);
+    fs::write(LOG_PATH, "")
+        .map_err(|error| BackendError::internal(format!("could not create installer log: {error}")))?;
+    fs::set_permissions(LOG_PATH, fs::Permissions::from_mode(0o640))
+        .map_err(|error| BackendError::internal(format!("could not secure installer log: {error}")))?;
+    run("chown", &["root:users", LOG_PATH])?;
     if socket_path.exists() {
         fs::remove_file(socket_path)
             .map_err(|error| BackendError::internal(format!("could not replace socket: {error}")))?;
@@ -1001,10 +1010,15 @@ fn main() {
     env::set_var("PATH", RUNTIME_PATH);
     let arguments: Vec<String> = env::args().collect();
     let result = match arguments.as_slice() {
-        [_, mode, socket, token] if mode == "serve" => serve(socket, token.clone()),
+        [_, mode, socket] if mode == "serve" => (|| -> BackendResult<()> {
+            let mut token = String::new();
+            std::io::stdin().read_line(&mut token)
+                .map_err(|error| BackendError::internal(format!("could not read backend token: {error}")))?;
+            serve(socket, token.trim().to_owned())
+        })(),
         [_, mode] if mode == "stop" => stop(),
         _ => Err(BackendError::client(
-            "usage: umbra-installer-backend serve SOCKET TOKEN | stop",
+            "usage: umbra-installer-backend serve SOCKET | stop",
         )),
     };
     if let Err(error) = result {
