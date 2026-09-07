@@ -6,7 +6,7 @@
     ./modules/desktop/rice.nix
   ] ++ lib.optional (!isLive) {
     home-manager.users.${settings.account.name} = {
-      imports = [ ./modules/desktop/home-rice.nix ];
+      imports = [ ./modules/desktop/home-niri.nix ];
       programs.home-manager.enable = true;
       home.stateVersion = "25.05";
     };
@@ -86,11 +86,14 @@
   boot.loader.limine = {
     enable = true;
     efiSupport = true;
+    # Install the standard EFI/BOOT/BOOTX64.EFI fallback. Some otherwise
+    # UEFI-capable firmware exposes no BootOrder entry, which makes Limine's
+    # efibootmgr registration path fail after the system has been copied.
+    efiInstallAsRemovable = true;
     style.interface.branding = "UmbraOS";
   };
-  # Register Limine with the firmware instead of installing it only as the
-  # removable-media fallback. Existing firmware entries (including
-  # systemd-boot) remain available for recovery.
-  boot.loader.efi.canTouchEfiVariables = true;
+  # Avoid unreliable firmware NVRAM registration. The fallback loader is
+  # written only to the EFI system partition selected by the installer.
+  boot.loader.efi.canTouchEfiVariables = false;
   boot.loader.efi.efiSysMountPoint = "/boot";
 }

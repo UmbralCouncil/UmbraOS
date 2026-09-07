@@ -6,7 +6,10 @@
   makeWrapper,
   zstd,
   coreRunner,
+  mistralCpuRunner,
+  llamaVulkanRunner,
   openssl,
+  dbus,
   libGL,
   libxkbcommon,
   wayland,
@@ -18,12 +21,11 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "umbra-studio-bin";
-  version = "0.1.1";
+  version = "0.1.7";
 
   src = fetchurl {
     url = "https://github.com/UmbralCouncil/UmbraOS/releases/download/studio-v${finalAttrs.version}/umbra-studio-x86_64-linux.tar.zst";
-    # Filled after the v0.1.1 source-free bundle is published.
-    hash = lib.fakeHash;
+    hash = "sha256-t7zHGRU1oQqEEqjyZPAp1UlZFeCksAmqzxkUZz3a+yU=";
   };
 
   sourceRoot = ".";
@@ -31,6 +33,7 @@ stdenv.mkDerivation (finalAttrs: {
   buildInputs = [
     stdenv.cc.cc.lib
     openssl
+    dbus
     libGL
     libxkbcommon
     wayland
@@ -48,6 +51,8 @@ stdenv.mkDerivation (finalAttrs: {
     cp -R bin share $out/
     wrapProgram $out/bin/umbra-studio \
       --set UMBRA_MICROVM_RUNNER "${coreRunner}/bin/microvm-run" \
+      --set UMBRA_MISTRAL_CPU_RUNNER "${mistralCpuRunner}/bin/mistralrs" \
+      --set UMBRA_LLAMA_VULKAN_RUNNER "${llamaVulkanRunner}/bin/llama-server" \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath finalAttrs.buildInputs}"
     runHook postInstall
   '';

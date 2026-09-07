@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 let
   umbraSddmTheme = pkgs.runCommand "umbra-breeze-sddm-theme" { } ''
     theme="$out/share/sddm/themes/umbra-breeze"
@@ -15,20 +15,12 @@ let
   '';
 in
 {
-  # Keep the desktop close to a conventional Hyprland installation: the
-  # compositor supplies the session, greetd handles login, and small standalone
-  # tools provide the bar, launcher, notifications, wallpaper, and lock screen.
-  programs.hyprland = {
-    enable = true;
-    xwayland.enable = true;
-  };
+  programs.niri.enable = true;
 
-  # SDDM runs its greeter on X11, then starts the native Hyprland Wayland
-  # session. The theme is the pinned KDE Breeze theme with Umbra artwork.
   services.xserver.enable = true;
   services.xserver.excludePackages = [ pkgs.xterm ];
   services.displayManager = {
-    defaultSession = "hyprland";
+    defaultSession = lib.mkForce "niri";
     sddm = {
       enable = true;
       theme = "${umbraSddmTheme}/share/sddm/themes/umbra-breeze";
@@ -42,34 +34,36 @@ in
 
   environment.systemPackages = with pkgs; [
     adwaita-icon-theme
-    grim
-    hypridle
-    hyprlock
-    hyprpaper
-    hyprpolkitagent
+    gnome-terminal
     kitty
     libnotify
     mako
     networkmanagerapplet
+    niri
+    orca
     pavucontrol
     pcmanfm
-    slurp
+    polkit_gnome
+    swaybg
+    swaylock-effects
     waybar
     wl-clipboard
     wofi
+    xwayland-satellite
   ];
 
   security.polkit.enable = true;
   services.gnome.gnome-keyring.enable = true;
+  services.gnome.at-spi2-core.enable = true;
 
-  # Audio
   security.rtkit.enable = true;
-  services.pipewire.enable = true;
-  services.pipewire.alsa.enable = true;
-  services.pipewire.alsa.support32Bit = true;
-  services.pipewire.pulse.enable = true;
-  services.pipewire.jack.enable = true;
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+    jack.enable = true;
+  };
 
-  # Boot screen, take out to see systemd logs.
   boot.plymouth.enable = true;
 }

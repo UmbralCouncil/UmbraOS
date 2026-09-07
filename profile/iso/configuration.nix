@@ -11,7 +11,7 @@ let
       isLive = true;
     };
     modules = [
-      ../../modules/desktop/home-rice.nix
+      ../../modules/desktop/home-niri.nix
       ../../modules/commands/shell.nix
       {
         home = {
@@ -32,19 +32,19 @@ let
     name = "umbra-installer";
     package = umbraInstaller;
   };
-  liveHyprlandConfig = pkgs.writeText "umbra-live.conf" ''
-    exec-once = ${umbraInstaller}/bin/umbra-installer
+  liveNiriConfig = pkgs.writeText "umbra-live.kdl" ''
+    spawn-at-startup "${umbraInstaller}/bin/umbra-installer"
   '';
 
 in
 {
   imports = [
-    # The graphical Hyprland live/installer base and the live desktop come from
+    # The graphical Niri live/installer base and the live desktop come from
     # ../../modules/iso (wired into the umbra-live flake output). Umbra replaces
     # the base profile's installer flow with its own local web UI and constrained
     # Rust backend. This profile only layers the Umbra-specific live-session UX
     # and shared tooling on top; it must not re-import the graphical base or
-    # ../../modules/desktop/hyprland.nix because the ISO module owns it.
+    # ../../modules/desktop/niri.nix because the ISO module owns it.
     ../../modules/apps/software.nix
     ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
@@ -92,21 +92,21 @@ in
     "d /home/nixos/Pictures 0755 nixos users - -"
     "d /home/nixos/Videos 0755 nixos users - -"
     "d /home/nixos/.config 0755 nixos users - -"
-    "d /home/nixos/.config/hypr 0755 nixos users - -"
     "d /home/nixos/.config/kitty 0755 nixos users - -"
     "d /home/nixos/.config/mako 0755 nixos users - -"
+    "d /home/nixos/.config/niri 0755 nixos users - -"
+    "d /home/nixos/.config/swaylock 0755 nixos users - -"
     "d /home/nixos/.config/waybar 0755 nixos users - -"
     "d /home/nixos/.config/wofi 0755 nixos users - -"
     "d /home/nixos/.config/gtk-3.0 0755 nixos users - -"
     "d /home/nixos/.config/gtk-4.0 0755 nixos users - -"
     "L+ /home/nixos/.zshrc - nixos users - ${riceHome}/home-files/.zshrc"
     "L+ /home/nixos/.config/user-dirs.dirs - nixos users - ${riceHome}/home-files/.config/user-dirs.dirs"
-    "L+ /home/nixos/.config/hypr/hyprland.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprland.conf"
-    "L+ /home/nixos/.config/hypr/hyprpaper.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprpaper.conf"
-    "L+ /home/nixos/.config/hypr/hyprlock.conf - nixos users - ${riceHome}/home-files/.config/hypr/hyprlock.conf"
-    "L+ /home/nixos/.config/hypr/live.conf - nixos users - ${liveHyprlandConfig}"
     "L+ /home/nixos/.config/kitty/kitty.conf - nixos users - ${riceHome}/home-files/.config/kitty/kitty.conf"
     "L+ /home/nixos/.config/mako/config - nixos users - ${riceHome}/home-files/.config/mako/config"
+    "L+ /home/nixos/.config/niri/config.kdl - nixos users - ${riceHome}/home-files/.config/niri/config.kdl"
+    "L+ /home/nixos/.config/niri/live.kdl - nixos users - ${liveNiriConfig}"
+    "L+ /home/nixos/.config/swaylock/config - nixos users - ${riceHome}/home-files/.config/swaylock/config"
     "L+ /home/nixos/.config/waybar/config.jsonc - nixos users - ${riceHome}/home-files/.config/waybar/config.jsonc"
     "L+ /home/nixos/.config/waybar/style.css - nixos users - ${riceHome}/home-files/.config/waybar/style.css"
     "L+ /home/nixos/.config/wofi/config - nixos users - ${riceHome}/home-files/.config/wofi/config"

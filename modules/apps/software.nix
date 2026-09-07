@@ -3,6 +3,8 @@
     unstable = import inputs.nixpkgs-unstable { inherit (pkgs) system; };
     umbraStudio = pkgs.callPackage ../studio/package.nix {
       coreRunner = inputs.self.nixosConfigurations.umbra-core-lab.config.microvm.declaredRunner;
+      mistralCpuRunner = inputs.self.packages.${pkgs.system}.ai-runner-cpu;
+      llamaVulkanRunner = inputs.self.packages.${pkgs.system}.ai-runner-vulkan;
     };
     commonPackages = with pkgs; [
       # Use the prefix 'unstable.' for unstable packages

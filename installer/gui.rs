@@ -241,7 +241,8 @@ impl Installer {
                 egui::ComboBox::from_id_salt("wifi").selected_text(if self.wifi_ssid.is_empty() { "Select a network" } else { &self.wifi_ssid }).show_ui(ui, |ui| {
                     for network in &self.networks { ui.selectable_value(&mut self.wifi_ssid, network.ssid.clone(), format!("{}  {}%  {}", network.ssid, network.signal, if network.security.is_empty() { "Open" } else { &network.security })); }
                 });
-                ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.wifi_password).password(true));
+                let password_label = ui.label("Wi-Fi password");
+                ui.add(egui::TextEdit::singleline(&mut self.wifi_password).password(true)).labelled_by(password_label.id);
                 if ui.add_enabled(!self.busy && !self.wifi_ssid.is_empty(), egui::Button::new("Connect")).clicked() {
                     self.busy = true; let ssid = self.wifi_ssid.clone();
                     spawn_rpc::<Value, _>(self.token.clone(), "wifi-connect", json!({"ssid": ssid, "password": self.wifi_password}), self.tx.clone(), move |r| Event::WifiConnected(r.map(|_| ssid)));
@@ -249,8 +250,9 @@ impl Installer {
                 ui.add_space(8.0); ui.label(RichText::new(&self.wifi_status).small().color(MUTED));
             });
             Self::card(&mut columns[1], |ui| {
-                ui.label(RichText::new("Date & time").size(17.0).strong()); ui.add_space(10.0); ui.label("Find a time zone");
-                ui.text_edit_singleline(&mut self.time_filter);
+                ui.label(RichText::new("Date & time").size(17.0).strong()); ui.add_space(10.0);
+                let timezone_search_label = ui.label("Find a time zone");
+                ui.add(egui::TextEdit::singleline(&mut self.time_filter)).labelled_by(timezone_search_label.id);
                 let search = self.time_filter.to_lowercase();
                 egui::ComboBox::from_id_salt("timezone").selected_text(&self.timezone).show_ui(ui, |ui| {
                     for zone in self.timezones.iter().filter(|z| search.is_empty() || z.to_lowercase().contains(&search)).take(100) { ui.selectable_value(&mut self.timezone, zone.clone(), zone); }
@@ -306,10 +308,10 @@ impl Installer {
     fn identity(&mut self, ui: &mut egui::Ui) {
         Self::heading(ui, "IDENTITY", "Make this system yours.");
         egui::Grid::new("identity").num_columns(2).spacing([20.0, 10.0]).show(ui, |ui| {
-            ui.label("Username"); ui.text_edit_singleline(&mut self.username); ui.end_row();
-            ui.label("Hostname"); ui.text_edit_singleline(&mut self.hostname); ui.end_row();
-            ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.password).password(true)); ui.end_row();
-            ui.label("Confirm password"); ui.add(egui::TextEdit::singleline(&mut self.password2).password(true)); ui.end_row();
+            let label = ui.label("Username"); ui.add(egui::TextEdit::singleline(&mut self.username)).labelled_by(label.id); ui.end_row();
+            let label = ui.label("Hostname"); ui.add(egui::TextEdit::singleline(&mut self.hostname)).labelled_by(label.id); ui.end_row();
+            let label = ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.password).password(true)).labelled_by(label.id); ui.end_row();
+            let label = ui.label("Confirm password"); ui.add(egui::TextEdit::singleline(&mut self.password2).password(true)).labelled_by(label.id); ui.end_row();
         });
     }
 
@@ -319,7 +321,9 @@ impl Installer {
             for (label, value) in [("Mode", if self.mode == InstallMode::Erase { "Erase whole disk" } else { "Manual / dual boot" }), ("Target", self.target()), ("User", &self.username), ("Hostname", &self.hostname), ("Time zone", &self.timezone)] { ui.label(label); ui.strong(value); ui.end_row(); }
         });
         let expected = self.expected_confirmation();
-        ui.add_space(8.0); ui.label(format!("Type {expected} to confirm")); ui.text_edit_singleline(&mut self.confirmation);
+        ui.add_space(8.0);
+        let confirmation_label = ui.label(format!("Type {expected} to confirm"));
+        ui.add(egui::TextEdit::singleline(&mut self.confirmation)).labelled_by(confirmation_label.id);
         if self.installing || !self.logs.is_empty() {
             ui.add_space(12.0);
             egui::Frame::new().fill(Color32::from_rgb(3, 8, 27)).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {

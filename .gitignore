@@ -4,4 +4,5 @@ result-*
 
 # Locally packaged release archives
 *source-*.tar.gz
+umbra-studio-*.tar.zst
 attach-iso.sh

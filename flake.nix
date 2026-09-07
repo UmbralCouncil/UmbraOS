@@ -47,6 +47,12 @@
     };
 
     pkgs = import inputs.nixpkgs { inherit system; };
+    # CUDA's redistributable runtime carries NVIDIA's EULA. Keep that license
+    # exception isolated to the optional accelerator-pack output.
+    cudaPkgs = import inputs.nixpkgs {
+      inherit system;
+      config.allowUnfree = true;
+    };
   in {
 
     # --- Contract check: the emitted catalog must match the vendored schema ---
@@ -101,6 +107,30 @@
       course-registry = pkgs.runCommand "umbra-course-registry" { } ''
         install -Dm644 ${./course-registry.json} $out/registry.json
       '';
+
+      # Approved local tutor models. This output contains metadata only; model
+      # weights are downloaded by Studio after explicit learner consent.
+      model-registry = pkgs.runCommand "umbra-model-registry" { } ''
+        install -Dm644 ${./model-registry.json} $out/registry.json
+      '';
+
+      # Local tutor runtimes are separate open-source packages. CPU and Vulkan
+      # ship with persistent installs; Studio realises the hardware-specific
+      # CUDA/ROCm outputs only when their accelerator probe succeeds.
+      ai-runner-cpu = pkgs.mistral-rs.override { acceleration = false; };
+      ai-runner-vulkan = pkgs.llama-cpp.override {
+        cudaSupport = false;
+        rocmSupport = false;
+        vulkanSupport = true;
+        blasSupport = false;
+      };
+      ai-runner-cuda = cudaPkgs.mistral-rs.override { acceleration = "cuda"; };
+      ai-runner-rocm = pkgs.llama-cpp.override {
+        cudaSupport = false;
+        rocmSupport = true;
+        vulkanSupport = false;
+        blasSupport = false;
+      };
 
       # Guarded host migration helper. It creates a private, host-specific copy
       # of this flake; normal source builds never contain machine-local data.
