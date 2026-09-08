@@ -408,17 +408,6 @@ impl eframe::App for Installer {
                 ui.add_space(12.0);
                 self.step_rail(ui);
             });
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(INK).inner_margin(egui::Margin::symmetric(24, 22))).show(context, |ui| {
-            let content_width = ui.available_width().min(980.0);
-            let gutter = ((ui.available_width() - content_width) / 2.0).max(0.0);
-            ui.horizontal(|ui| {
-                ui.add_space(gutter);
-                ui.vertical(|ui| {
-                    ui.set_width(content_width);
-                    match self.step { 0 => self.setup(ui), 1 => self.mode(ui), 2 => self.storage(ui), 3 => self.identity(ui), _ => self.review(ui) }
-                });
-            });
-        });
         egui::TopBottomPanel::bottom("footer")
             .frame(egui::Frame::new().fill(Color32::from_rgb(5, 12, 39)).inner_margin(egui::Margin::symmetric(24, 12)).stroke(egui::Stroke::new(1.0, BORDER)))
             .show(context, |ui| { ui.horizontal(|ui| {
@@ -440,6 +429,21 @@ impl eframe::App for Installer {
                 }
             });
         }); });
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(INK).inner_margin(egui::Margin::symmetric(24, 22))).show(context, |ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let content_width = ui.available_width().min(980.0);
+                    let gutter = ((ui.available_width() - content_width) / 2.0).max(0.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(gutter);
+                        ui.vertical(|ui| {
+                            ui.set_width(content_width);
+                            match self.step { 0 => self.setup(ui), 1 => self.mode(ui), 2 => self.storage(ui), 3 => self.identity(ui), _ => self.review(ui) }
+                        });
+                    });
+                });
+        });
         if self.busy { context.request_repaint_after(std::time::Duration::from_millis(100)); }
     }
 }
