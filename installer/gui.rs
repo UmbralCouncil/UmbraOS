@@ -64,6 +64,7 @@ enum Event {
     Disks(Result<DisksResponse, String>),
     Wifi(Result<WifiResponse, String>),
     WifiConnected(Result<String, String>),
+    ProxySet(Result<String, String>),
     Time(Result<TimeResponse, String>),
     TimeSet(Result<String, String>),
     TimeManuallySet(Result<String, String>),
@@ -83,6 +84,9 @@ struct Installer {
     wifi_ssid: String,
     wifi_password: String,
     wifi_status: String,
+    advanced_networking: bool,
+    proxy_url: String,
+    proxy_status: String,
     timezone: String,
     timezones: Vec<String>,
     time_filter: String,
@@ -151,6 +155,7 @@ impl Installer {
             token, step: 0, mode: InstallMode::Erase, disks: vec![], target_disk: String::new(),
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
             wifi_password: String::new(), wifi_status: "Scanning…".into(), timezone: "America/New_York".into(),
+            advanced_networking: false, proxy_url: String::new(), proxy_status: String::new(),
             timezones: vec![], time_filter: String::new(), manual_time: String::new(), time_status: "Checking…".into(),
             username: "umbra".into(), hostname: "umbra".into(), password: String::new(),
             password2: String::new(), confirmation: String::new(), busy: false, installing: false,
@@ -190,6 +195,7 @@ impl Installer {
                 }, Err(error) => self.result = error } }
                 Event::Wifi(result) => match result { Ok(data) => { self.networks = data.networks; if let Some(n) = self.networks.iter().find(|n| n.connected) { self.wifi_ssid = n.ssid.clone(); self.wifi_status = format!("Connected to {}", n.ssid); } else { self.wifi_status = "Select a network to connect".into(); } }, Err(error) => self.wifi_status = error },
                 Event::WifiConnected(result) => { self.busy = false; match result { Ok(ssid) => { self.wifi_password.clear(); self.wifi_status = format!("Connected to {ssid}"); }, Err(error) => self.wifi_status = error } }
+                Event::ProxySet(result) => { self.busy = false; match result { Ok(_) => self.proxy_status = if self.proxy_url.is_empty() { "Direct connection verified".into() } else { "Proxy connection verified".into() }, Err(error) => self.proxy_status = error } }
                 Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; self.time_status = if data.synchronized { "Clock synchronized" } else { "Waiting for NTP" }.into(); }, Err(error) => self.time_status = error },
                 Event::TimeSet(result) => { self.busy = false; match result { Ok(zone) => self.time_status = format!("{zone}; clock synchronized"), Err(error) => self.time_status = error } }
                 Event::TimeManuallySet(result) => { self.busy = false; match result { Ok(value) => self.time_status = format!("Clock set to {value}; HTTPS verified"), Err(error) => self.time_status = error } }
@@ -274,6 +280,27 @@ impl Installer {
                 }
                 ui.add_space(8.0); ui.label(RichText::new(&self.time_status).small().color(MUTED));
             });
+        });
+        ui.add_space(14.0);
+        Self::card(ui, |ui| {
+            ui.toggle_value(&mut self.advanced_networking, "Advanced networking");
+            if self.advanced_networking {
+                ui.add_space(8.0);
+                ui.label("Optional HTTP/HTTPS proxy");
+                ui.label(RichText::new("Example: http://172.31.134.127:8228").small().color(MUTED));
+                let proxy_label = ui.label("Proxy URL");
+                ui.add(egui::TextEdit::singleline(&mut self.proxy_url).hint_text("http://host:port")).labelled_by(proxy_label.id);
+                if ui.add_enabled(!self.busy, egui::Button::new("Apply and test proxy")).clicked() {
+                    self.busy = true;
+                    let url = self.proxy_url.trim().to_owned();
+                    self.proxy_url = url.clone();
+                    spawn_rpc::<Value, _>(self.token.clone(), "proxy-set", json!({"url": url}), self.tx.clone(), |result| Event::ProxySet(result.map(|_| "ok".to_owned())));
+                }
+                if !self.proxy_status.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(&self.proxy_status).small().color(MUTED));
+                }
+            }
         });
         ui.add_space(14.0);
         egui::Frame::new().fill(Color32::from_rgb(18, 43, 74)).corner_radius(8).inner_margin(12).show(ui, |ui| {

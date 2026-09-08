@@ -6,7 +6,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,6 +22,23 @@ const SPECTRUM_SOURCE: &str = "@SPECTRUM_SOURCE@";
 const LOG_PATH: &str = "/run/umbra-installer/install.log";
 const BACKEND_SOCKET: &str = "/run/umbra-installer/backend.sock";
 const BACKEND_PID: &str = "/run/umbra-installer/backend.pid";
+
+static PROXY: OnceLock<RwLock<Option<String>>> = OnceLock::new();
+
+fn proxy_state() -> &'static RwLock<Option<String>> {
+    PROXY.get_or_init(|| RwLock::new(None))
+}
+
+fn apply_proxy(command: &mut Command) {
+    if let Some(proxy) = proxy_state().read().ok().and_then(|value| value.clone()) {
+        command.envs([
+            ("http_proxy", proxy.as_str()),
+            ("https_proxy", proxy.as_str()),
+            ("HTTP_PROXY", proxy.as_str()),
+            ("HTTPS_PROXY", proxy.as_str()),
+        ]);
+    }
+}
 
 #[derive(Debug)]
 struct BackendError {
@@ -98,8 +115,10 @@ fn cgi_response(status: Option<&str>, content_type: &str, body: &str) -> String 
 }
 
 fn output(program: &str, args: &[&str]) -> BackendResult<String> {
-    let result = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    apply_proxy(&mut command);
+    let result = command
         .output()
         .map_err(|error| BackendError::internal(format!("could not run {program}: {error}")))?;
     let stdout = String::from_utf8_lossy(&result.stdout).trim().to_owned();
@@ -171,10 +190,10 @@ where
 fn streamed_output(program: &str, args: &[&str]) -> BackendResult<String> {
     log(&format!("executing: {program} {}", args.join(" ")));
     let started = SystemTime::now();
-    let mut child = Command::new(program)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    let mut command = Command::new(program);
+    command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    apply_proxy(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|error| {
             BackendError::internal(format!(
@@ -527,6 +546,37 @@ fn verify_https() -> BackendResult<()> {
     .map_err(|error| BackendError::client(format!("HTTPS verification failed: {}", error.message)))
 }
 
+fn set_proxy(body: &str) -> BackendResult<String> {
+    let value = jq(body, ".url // empty")?;
+    if !value.is_empty()
+        && (!(value.starts_with("http://") || value.starts_with("https://"))
+            || value.len() > 2048
+            || value.chars().any(|character| character.is_control() || character.is_whitespace()))
+    {
+        return Err(BackendError::client(
+            "proxy must be an http:// or https:// URL without whitespace",
+        ));
+    }
+
+    let previous = proxy_state()
+        .read()
+        .map_err(|_| BackendError::internal("proxy state is unavailable"))?
+        .clone();
+    *proxy_state()
+        .write()
+        .map_err(|_| BackendError::internal("proxy state is unavailable"))? =
+        (!value.is_empty()).then_some(value);
+
+    if let Err(error) = verify_https() {
+        if let Ok(mut proxy) = proxy_state().write() {
+            *proxy = previous;
+        }
+        return Err(error);
+    }
+
+    Ok(cgi_response(None, "application/json", "{\"ok\":true}"))
+}
+
 fn set_manual_time(body: &str) -> BackendResult<String> {
     let value = jq(body, ".time // empty")?;
     if value.is_empty() || value.len() > 40 || !value.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | ':' | 'T' | 'Z' | '+' | ' ')) {
@@ -629,6 +679,8 @@ fn build_target_system() -> BackendResult<String> {
     let args = [
         "--extra-experimental-features",
         "nix-command flakes",
+        "--store",
+        "local",
         "build",
         "--show-trace",
         "--print-build-logs",
@@ -837,6 +889,12 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
                     return Err(BackendError::client("POST required"));
                 }
                 connect_wifi(&body)
+            }
+            "proxy-set" => {
+                if method != "POST" {
+                    return Err(BackendError::client("POST required"));
+                }
+                set_proxy(&body)
             }
             "time" => time_response(),
             "time-set" => {
