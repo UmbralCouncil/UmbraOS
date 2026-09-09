@@ -22,11 +22,11 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "umbra-studio-bin";
-  version = "0.1.8";
+  version = "0.1.9";
 
   src = fetchurl {
     url = "https://github.com/UmbralCouncil/UmbraOS/releases/download/studio-v${finalAttrs.version}/umbra-studio-x86_64-linux.tar.zst";
-    hash = "sha256-e8Ai3ueWI2z9eC58Ha1xYonvTtyx10kRj+wgcZQCI1U=;
+    hash = "sha256-zx0k3ii01rKMLOEg9bz3bFnmBk2Q+PV6ljjM4Dv3lDc=";
   };
 
   sourceRoot = ".";
