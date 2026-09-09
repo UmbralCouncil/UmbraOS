@@ -17,11 +17,22 @@ let
         setopt AUTO_CD INTERACTIVE_COMMENTS
 
         umbra-rebuild() {
+          local flake_root="/etc/umbra"
           local configuration="default"
-          if [[ -f /etc/nixos/umbra/migration-settings.nix ]]; then
+
+          # Fresh installations keep their editable flake in /etc/umbra.
+          # Older migrated systems retain a snapshot under /etc/nixos/umbra.
+          if [[ ! -f "$flake_root/flake.nix" && -f /etc/nixos/umbra/flake.nix ]]; then
+            flake_root="/etc/nixos/umbra"
+          fi
+          if [[ ! -f "$flake_root/flake.nix" ]]; then
+            print -u2 "umbra-rebuild: no UmbraOS flake found in /etc/umbra or /etc/nixos/umbra"
+            return 1
+          fi
+          if [[ -f "$flake_root/migration-settings.nix" ]]; then
             configuration="umbra-migration"
           fi
-          sudo nixos-rebuild switch --impure --flake "/etc/nixos/umbra#$configuration"
+          sudo nixos-rebuild switch --impure --flake "$flake_root#$configuration"
         }
       '';
     };
