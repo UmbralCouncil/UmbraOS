@@ -23,23 +23,6 @@ let
           fi
           sudo nixos-rebuild switch --impure --flake "/etc/nixos/umbra#$configuration"
         }
-
-        proxied() {
-          local ipq url port proxy_url
-          print "zshrc: PROXIED.fn"
-          sleep 1
-          read -r "ipq?standard IP? (y/n): "
-          if [[ $ipq == [yY] ]]; then
-            url="192.168.49.1"
-            print "setting proxy URL to http://$url"
-          else
-            read -r "url?enter proxy IP: "
-          fi
-          read -r "port?enter port: "
-          proxy_url="http://$url:$port"
-          export http_proxy="$proxy_url" https_proxy="$proxy_url" ssl_proxy="$proxy_url" ftp_proxy="$proxy_url"
-          export HTTP_PROXY="$proxy_url" HTTPS_PROXY="$proxy_url"
-        }
       '';
     };
 

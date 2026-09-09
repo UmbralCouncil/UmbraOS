@@ -53,7 +53,6 @@ struct WifiResponse { networks: Vec<Network> }
 #[derive(Deserialize)]
 struct TimeResponse {
     timezone: String,
-    synchronized: bool,
     timezones: Vec<String>,
 }
 
@@ -66,8 +65,6 @@ enum Event {
     WifiConnected(Result<String, String>),
     ProxySet(Result<String, String>),
     Time(Result<TimeResponse, String>),
-    TimeSet(Result<String, String>),
-    TimeManuallySet(Result<String, String>),
     Installed(Result<String, String>),
     Log(String),
 }
@@ -90,8 +87,6 @@ struct Installer {
     timezone: String,
     timezones: Vec<String>,
     time_filter: String,
-    manual_time: String,
-    time_status: String,
     username: String,
     hostname: String,
     password: String,
@@ -156,7 +151,7 @@ impl Installer {
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
             wifi_password: String::new(), wifi_status: "Scanning…".into(), timezone: "America/New_York".into(),
             advanced_networking: false, proxy_url: String::new(), proxy_status: String::new(),
-            timezones: vec![], time_filter: String::new(), manual_time: String::new(), time_status: "Checking…".into(),
+            timezones: vec![], time_filter: String::new(),
             username: "umbra".into(), hostname: "umbra".into(), password: String::new(),
             password2: String::new(), confirmation: String::new(), busy: false, installing: false,
             result: String::new(), logs: vec![], tx, rx,
@@ -196,9 +191,7 @@ impl Installer {
                 Event::Wifi(result) => match result { Ok(data) => { self.networks = data.networks; if let Some(n) = self.networks.iter().find(|n| n.connected) { self.wifi_ssid = n.ssid.clone(); self.wifi_status = format!("Connected to {}", n.ssid); } else { self.wifi_status = "Select a network to connect".into(); } }, Err(error) => self.wifi_status = error },
                 Event::WifiConnected(result) => { self.busy = false; match result { Ok(ssid) => { self.wifi_password.clear(); self.wifi_status = format!("Connected to {ssid}"); }, Err(error) => self.wifi_status = error } }
                 Event::ProxySet(result) => { self.busy = false; match result { Ok(_) => self.proxy_status = if self.proxy_url.is_empty() { "Direct connection verified".into() } else { "Proxy connection verified".into() }, Err(error) => self.proxy_status = error } }
-                Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; self.time_status = if data.synchronized { "Clock synchronized" } else { "Waiting for NTP" }.into(); }, Err(error) => self.time_status = error },
-                Event::TimeSet(result) => { self.busy = false; match result { Ok(zone) => self.time_status = format!("{zone}; clock synchronized"), Err(error) => self.time_status = error } }
-                Event::TimeManuallySet(result) => { self.busy = false; match result { Ok(value) => self.time_status = format!("Clock set to {value}; HTTPS verified"), Err(error) => self.time_status = error } }
+                Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; }, Err(error) => self.result = error },
                 Event::Installed(result) => { self.busy = false; self.installing = false; self.result = result.unwrap_or_else(|e| e); }
                 Event::Log(line) => { self.logs.push(line); if self.logs.len() > 500 { self.logs.drain(..100); } }
             }
@@ -266,19 +259,8 @@ impl Installer {
                 egui::ComboBox::from_id_salt("timezone").selected_text(&self.timezone).show_ui(ui, |ui| {
                     for zone in self.timezones.iter().filter(|z| search.is_empty() || z.to_lowercase().contains(&search)).take(100) { ui.selectable_value(&mut self.timezone, zone.clone(), zone); }
                 });
-                if ui.add_enabled(!self.busy, egui::Button::new("Apply timezone & enable NTP")).clicked() {
-                    self.busy = true; let zone = self.timezone.clone();
-                    spawn_rpc::<Value, _>(self.token.clone(), "time-set", json!({"timezone": zone}), self.tx.clone(), move |r| Event::TimeSet(r.map(|_| zone)));
-                }
-                ui.separator();
-                let manual_label = ui.label("Manual time if NTP is blocked (example: 2026-09-07 14:30)");
-                ui.add(egui::TextEdit::singleline(&mut self.manual_time)).labelled_by(manual_label.id);
-                if ui.add_enabled(!self.busy && !self.manual_time.is_empty(), egui::Button::new("Set time and verify HTTPS")).clicked() {
-                    self.busy = true;
-                    let value = self.manual_time.clone();
-                    spawn_rpc::<Value, _>(self.token.clone(), "time-manual", json!({"time": value}), self.tx.clone(), move |r| Event::TimeManuallySet(r.map(|_| value)));
-                }
-                ui.add_space(8.0); ui.label(RichText::new(&self.time_status).small().color(MUTED));
+                ui.add_space(8.0);
+                ui.label(RichText::new("The selected timezone is applied to the installed system.").small().color(MUTED));
             });
         });
         ui.add_space(14.0);
@@ -418,11 +400,6 @@ impl eframe::App for Installer {
                 if ui.add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(150.0, 38.0))).clicked() {
                     if self.step == 4 { self.install(); } else if let Err(error) = self.validate_step() { self.result = error; } else {
                         self.result.clear();
-                        if self.step == 0 {
-                            self.busy = true;
-                            let zone = self.timezone.clone();
-                            spawn_rpc::<Value, _>(self.token.clone(), "time-set", json!({"timezone": zone}), self.tx.clone(), move |r| Event::TimeSet(r.map(|_| zone)));
-                        }
                         self.step += 1;
                         if self.step == 2 && self.disks.is_empty() { self.refresh_disks(); }
                     }

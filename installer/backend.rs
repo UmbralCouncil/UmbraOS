@@ -192,6 +192,9 @@ fn streamed_output(program: &str, args: &[&str]) -> BackendResult<String> {
     let started = SystemTime::now();
     let mut command = Command::new(program);
     command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if Path::new("/mnt/.umbra-installer-tmp").is_dir() {
+        command.env("TMPDIR", "/mnt/.umbra-installer-tmp");
+    }
     apply_proxy(&mut command);
     let mut child = command
         .spawn()
@@ -475,12 +478,6 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
             "nmcli failed: {}", String::from_utf8_lossy(&result.stderr).trim()
         )));
     }
-    synchronize_clock().map_err(|error| {
-        BackendError::client(format!(
-            "Wi-Fi connected, but clock synchronization failed: {}",
-            error.message
-        ))
-    })?;
     Ok(cgi_response(
         None,
         "application/json",
@@ -490,51 +487,14 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
 
 fn time_response() -> BackendResult<String> {
     let timezone = output("timedatectl", &["show", "--property=Timezone", "--value"])?;
-    let synchronized = output(
-        "timedatectl",
-        &["show", "--property=NTPSynchronized", "--value"],
-    )?;
     let zones = output("timedatectl", &["list-timezones"])?;
     let zones = zones.lines().map(json_escape).collect::<Vec<_>>().join(",");
     let body = format!(
-        "{{\"timezone\":{},\"synchronized\":{},\"timezones\":[{}]}}",
+        "{{\"timezone\":{},\"timezones\":[{}]}}",
         json_escape(&timezone),
-        if synchronized == "yes" { "true" } else { "false" },
         zones,
     );
     Ok(cgi_response(None, "application/json", &body))
-}
-
-fn synchronize_clock() -> BackendResult<()> {
-    run("timedatectl", &["set-ntp", "true"])?;
-    if output(
-        "timedatectl",
-        &["show", "--property=NTPSynchronized", "--value"],
-    )
-    .is_ok_and(|value| value == "yes")
-    {
-        return Ok(());
-    }
-    // NetworkManager may have acquired connectivity after timesyncd's initial
-    // boot attempt. Restart it so machines with a dead CMOS clock do not carry
-    // an invalid date into HTTPS certificate validation.
-    run("systemctl", &["restart", "systemd-timesyncd.service"])?;
-    for _ in 0..20 {
-        if output(
-            "timedatectl",
-            &["show", "--property=NTPSynchronized", "--value"],
-        )
-        .is_ok_and(|value| value == "yes")
-        {
-            log("system clock synchronized through NTP");
-            return Ok(());
-        }
-        thread::sleep(std::time::Duration::from_millis(500));
-    }
-
-    Err(BackendError::client(
-        "NTP is unavailable. Enter the current date and time manually, then verify HTTPS.",
-    ))
 }
 
 fn verify_https() -> BackendResult<()> {
@@ -575,33 +535,6 @@ fn set_proxy(body: &str) -> BackendResult<String> {
     }
 
     Ok(cgi_response(None, "application/json", "{\"ok\":true}"))
-}
-
-fn set_manual_time(body: &str) -> BackendResult<String> {
-    let value = jq(body, ".time // empty")?;
-    if value.is_empty() || value.len() > 40 || !value.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | ':' | 'T' | 'Z' | '+' | ' ')) {
-        return Err(BackendError::client("invalid manual date/time"));
-    }
-    run("timedatectl", &["set-ntp", "false"])?;
-    let result = run("date", &["--utc", "--set", &value]).and_then(|_| verify_https());
-    let restore_result = run("timedatectl", &["set-ntp", "true"]);
-    result?;
-    restore_result?;
-    Ok(cgi_response(None, "application/json", "{\"ok\":true}"))
-}
-
-fn set_time(body: &str) -> BackendResult<String> {
-    let timezone = jq(body, ".timezone // empty")?;
-    if !validate_timezone(&timezone) {
-        return Err(BackendError::client("invalid or unknown time zone"));
-    }
-    run("timedatectl", &["set-timezone", &timezone])?;
-    synchronize_clock()?;
-    Ok(cgi_response(
-        None,
-        "application/json",
-        &format!("{{\"ok\":true,\"timezone\":{}}}", json_escape(&timezone)),
-    ))
 }
 
 fn hash_password(password: &str) -> BackendResult<String> {
@@ -671,6 +604,9 @@ fn disks_response() -> BackendResult<String> {
 }
 
 fn build_target_system() -> BackendResult<String> {
+    fs::create_dir_all("/mnt/.umbra-installer-tmp").map_err(|error| {
+        BackendError::internal(format!("could not create target build directory: {error}"))
+    })?;
     let nixpkgs = format!("path:{NIXPKGS_SOURCE}");
     let nixpkgs_unstable = format!("path:{NIXPKGS_UNSTABLE_SOURCE}");
     let home_manager = format!("path:{HOME_MANAGER_SOURCE}");
@@ -680,7 +616,9 @@ fn build_target_system() -> BackendResult<String> {
         "--extra-experimental-features",
         "nix-command flakes",
         "--store",
-        "local",
+        "/mnt",
+        "--extra-substituters",
+        "auto?trusted=1",
         "build",
         "--show-trace",
         "--print-build-logs",
@@ -709,7 +647,6 @@ fn build_target_system() -> BackendResult<String> {
 }
 
 fn require_internet() -> BackendResult<()> {
-    synchronize_clock()?;
     verify_https()
 }
 
@@ -862,6 +799,7 @@ fn install_system(body: &str) -> BackendResult<String> {
             &system_path,
         ],
     )?;
+    let _ = fs::remove_dir_all("/mnt/.umbra-installer-tmp");
     run("sync", &[])?;
     mounts.cleanup();
 
@@ -897,18 +835,6 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
                 set_proxy(&body)
             }
             "time" => time_response(),
-            "time-set" => {
-                if method != "POST" {
-                    return Err(BackendError::client("POST required"));
-                }
-                set_time(&body)
-            }
-            "time-manual" => {
-                if method != "POST" {
-                    return Err(BackendError::client("POST required"));
-                }
-                set_manual_time(&body)
-            }
             "install" => {
                 if method != "POST" {
                     return Err(BackendError::client("POST required"));

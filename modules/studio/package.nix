@@ -10,6 +10,7 @@
   llamaVulkanRunner,
   openssl,
   dbus,
+  fontconfig,
   libGL,
   libxkbcommon,
   wayland,
@@ -34,6 +35,7 @@ stdenv.mkDerivation (finalAttrs: {
     stdenv.cc.cc.lib
     openssl
     dbus
+    fontconfig
     libGL
     libxkbcommon
     wayland
