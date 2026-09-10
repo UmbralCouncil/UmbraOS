@@ -34,3 +34,20 @@ nix build .#iso
 The installed closure contains the compiled Studio application, its desktop
 assets and EULA, plus the open Umbra Core guest runner. It does not contain the
 private Studio repository or external courses.
+
+## Automated release: BEEFCAKE
+
+Run the interactive release orchestrator from the UmbraOS checkout:
+
+```sh
+./tools/beefcake
+```
+
+It updates the Studio version, builds the source-free bundle, publishes and
+verifies the GitHub asset, pins its verified SRI hash in UmbraOS, builds the
+ISO, assigns the next `UmbraOS-26.05.YYYYMMDDvN.iso` name, and uploads the ISO
+and checksum to SourceForge. SourceForge transfers use resumable rsync. Pass a
+CONNECT proxy interactively or with `--proxy HOST:PORT`.
+
+Use `./tools/beefcake --help` for path and account overrides. Run it as the
+normal development user; the Nix daemon performs privileged builds.

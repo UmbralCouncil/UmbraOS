@@ -2,6 +2,7 @@
 result
 result-*
 *.iso
+*.iso.sha256
 
 # Locally packaged release archives
 *source-*.tar.gz
