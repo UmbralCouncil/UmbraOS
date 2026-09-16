@@ -2,7 +2,7 @@
 let
   runtimePath = pkgs.lib.makeBinPath [
     pkgs.bash pkgs.coreutils pkgs.curl pkgs.dosfstools pkgs.gawk pkgs.gnugrep pkgs.gnused
-    pkgs.jq pkgs.nix pkgs.nixos-install-tools pkgs.networkmanager pkgs.parted
+    pkgs.git pkgs.jq pkgs.nix pkgs.nixos-install-tools pkgs.networkmanager pkgs.parted
     pkgs.systemd pkgs.util-linux pkgs.btrfs-progs
   ];
 in
@@ -28,6 +28,7 @@ pkgs.rustPlatform.buildRustPackage {
       "$out/share/icons/hicolor/256x256/apps"
     substitute ${./backend.rs} backend-generated.rs \
       --replace-fail @PATH@ '${runtimePath}' \
+      --replace-fail @SYSTEM@ '${pkgs.stdenv.hostPlatform.system}' \
       --replace-fail @NIX@ '${pkgs.nix}/bin/nix' \
       --replace-fail @MKPASSWD@ '${pkgs.mkpasswd}/bin/mkpasswd' \
       --replace-fail @UMBRA_SOURCE@ '${source}' \

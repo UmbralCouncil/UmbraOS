@@ -4,6 +4,7 @@
   imports = [
     ./modules/branding.nix
     ./modules/desktop/rice.nix
+    ./modules/update.nix
   ] ++ lib.optional (!isLive) {
     home-manager.users.${settings.account.name} = {
       imports = [ ./modules/desktop/home-niri.nix ];
@@ -76,7 +77,7 @@
   # matching hypervisor. Keep display resizing, clipboard integration, virtual
   # storage and clean shutdown working after installation as well as on the ISO.
   services.qemuGuest.enable = true;
-  virtualisation.vmware.guest.enable = true;
+  virtualisation.vmware.guest.enable = system == "x86_64-linux";
 
   /* Compressed memory */
   services.zram-generator.enable = true;
@@ -93,11 +94,11 @@
   networking.networkmanager.enable = true;
   # services.openssh.enable = true;
 
-  /* Bootloader — Limine (UEFI). The `iso` profile force-disables this because
-     the live image supplies its own boot mechanism via the iso-image module. */
-  boot.loader.systemd-boot.enable = false;
+  /* Installed UEFI boot: Limine on x86, systemd-boot on ARM64. The live
+     image disables both and uses the iso-image module's own EFI loader. */
+  boot.loader.systemd-boot.enable = system == "aarch64-linux";
   boot.loader.limine = {
-    enable = true;
+    enable = system == "x86_64-linux";
     efiSupport = true;
     # Install the standard EFI/BOOT/BOOTX64.EFI fallback. Some otherwise
     # UEFI-capable firmware exposes no BootOrder entry, which makes Limine's

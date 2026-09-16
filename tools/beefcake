@@ -1,0 +1,461 @@
+#!/usr/bin/env bash
+# BEEFCAKE: build and publish Studio and UmbraOS for x86_64 and ARM64.
+# PROGAIIINNNEEERRRR
+# BEEFCAKE — Build Execution, Evaluation, Fetching, Compilation, Assembly, and Kernel/Environment generation.
+set -Eeuo pipefail
+shopt -s nullglob
+
+die() {
+  printf 'BEEFCAKE: %s\n' "$*" >&2
+  exit 1
+}
+
+note() {
+  printf '\n==> %s\n' "$*"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tools/beefcake [options]
+
+Options:
+  --version VERSION       Studio semantic version, for example 0.1.9
+  --tag TAG               GitHub release tag (must be studio-vVERSION)
+  --proxy HOST:PORT       HTTP proxy for client downloads and SourceForge SSH
+  --no-proxy              Disable inherited client and SourceForge proxies
+  --skip-sourceforge      Build both ISOs without uploading them
+  --builders SPEC         Override Nix's remote builder list for this run
+  --check-builders        Test both build architectures, then exit (no release)
+  --jobs N                Concurrent local Nix jobs (default: auto)
+  --cores N               Cores per local build, 0 means all (default: 0)
+  --yes                   Accept the final publication confirmation
+  -h, --help              Show this help
+
+Environment overrides:
+  UMBRA_STUDIO_DIR        UmbraStudio checkout (default: sibling of UmbraOS)
+  UMBRA_OS_DIR            UmbraOS checkout (default: parent of this script)
+  UMBRA_GITHUB_REPO       Release repository (default: UmbralCouncil/UmbraOS)
+  UMBRA_OS_SERIES         ISO series prefix (default: 26.05)
+  UMBRA_BUILDERS          Default for --builders; otherwise use Nix configuration
+  UMBRA_BUILD_JOBS        Default for --jobs
+  UMBRA_BUILD_CORES       Default for --cores
+  SOURCEFORGE_USER        SourceForge username (default: taptsecd)
+  SOURCEFORGE_PROJECT     SourceForge project path (default: umbraos)
+  SOURCEFORGE_FOLDER      Optional FRS subdirectory
+
+With no proxy flag, inherit usbproxy's http_proxy/https_proxy environment.
+For multi-user Nix, BEEFCAKE applies the selected proxy to nix-daemon through
+a temporary runtime systemd drop-in and restores the daemon when it exits.
+BEEFCAKE does not source .zshrc or write proxy settings into /etc/nixos.
+
+Both x86_64-linux and aarch64-linux are always built. ARM can use local
+emulation or a remote Nix builder. Run --check-builders to test your setup.
+
+The command is restartable. GitHub assets are replaced with --clobber and
+SourceForge uploads use rsync's partial-file and append verification support.
+EOF
+}
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+default_os_dir="$(cd -- "$script_dir/.." && pwd -P)"
+os_dir="${UMBRA_OS_DIR:-$default_os_dir}"
+studio_dir="${UMBRA_STUDIO_DIR:-$(cd -- "$os_dir/.." && pwd -P)/UmbraStudio}"
+github_repo="${UMBRA_GITHUB_REPO:-UmbralCouncil/UmbraOS}"
+os_series="${UMBRA_OS_SERIES:-26.05}"
+sf_user="${SOURCEFORGE_USER:-taptsecd}"
+sf_project="${SOURCEFORGE_PROJECT:-umbraos}"
+sf_folder="${SOURCEFORGE_FOLDER:-}"
+
+version=""
+tag=""
+proxy=""
+proxy_choice="auto"
+skip_sourceforge=0
+assume_yes=0
+check_builders=0
+builders="${UMBRA_BUILDERS:-}"
+local_jobs="${UMBRA_BUILD_JOBS:-auto}"
+build_cores="${UMBRA_BUILD_CORES:-0}"
+systems=(x86_64-linux aarch64-linux)
+
+while (( $# )); do
+  case "$1" in
+    --version)
+      (( $# >= 2 )) || die "--version requires a value"
+      version="$2"
+      shift 2
+      ;;
+    --tag)
+      (( $# >= 2 )) || die "--tag requires a value"
+      tag="$2"
+      shift 2
+      ;;
+    --builders|--jobs|--cores)
+      (( $# >= 2 )) || die "$1 requires a value"
+      case "$1" in
+        --builders) builders="$2" ;;
+        --jobs) local_jobs="$2" ;;
+        --cores) build_cores="$2" ;;
+      esac
+      shift 2
+      ;;
+    --check-builders)
+      check_builders=1
+      shift
+      ;;
+    --proxy)
+      (( $# >= 2 )) || die "--proxy requires HOST:PORT"
+      proxy="$2"
+      proxy_choice="explicit"
+      shift 2
+      ;;
+    --no-proxy)
+      proxy=""
+      proxy_choice="none"
+      shift
+      ;;
+    --skip-sourceforge)
+      skip_sourceforge=1
+      shift
+      ;;
+    --yes)
+      assume_yes=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *) die "unknown option: $1" ;;
+  esac
+done
+
+[[ $EUID -ne 0 ]] || die "run this as your normal user, not with sudo"
+[[ -e "$studio_dir/.git" ]] || die "UmbraStudio repository not found at $studio_dir"
+[[ -e "$os_dir/.git" ]] || die "UmbraOS repository not found at $os_dir"
+
+[[ $local_jobs == auto || $local_jobs =~ ^[1-9][0-9]*$ ]] || die "--jobs must be auto or a positive integer"
+[[ $build_cores =~ ^[0-9]+$ ]] || die "--cores must be a non-negative integer"
+command -v nix >/dev/null || die "required command is missing: nix"
+command -v python3 >/dev/null || die "required command is missing: python3"
+
+work_dir="$(mktemp -d -t beefcake.XXXXXXXX)"
+runtime_proxy_dropin=""
+sudo_keepalive_pid=""
+cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  set +e
+  if [[ -n $runtime_proxy_dropin ]]; then
+    if sudo -n rm -f -- "$runtime_proxy_dropin"; then
+      sudo -n systemctl daemon-reload
+      sudo -n systemctl restart nix-daemon.service ||
+        printf 'BEEFCAKE: warning: could not restart nix-daemon while restoring its proxy environment\n' >&2
+    else
+      printf 'BEEFCAKE: warning: remove %s and restart nix-daemon to clear the temporary proxy\n' \
+        "$runtime_proxy_dropin" >&2
+    fi
+  fi
+  [[ -z $sudo_keepalive_pid ]] || kill "$sudo_keepalive_pid" 2>/dev/null
+  if [[ -d $work_dir && ${work_dir##*/} == beefcake.* ]]; then
+    rm -rf -- "$work_dir"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+# Resolve proxies before the first Nix invocation. usbproxy in .zshrc exports
+# lowercase names, which must win over stale uppercase shell settings.
+if [[ $proxy_choice == auto ]]; then
+  proxy="${https_proxy:-${http_proxy:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}}"
+fi
+if [[ $proxy_choice == none ]]; then
+  unset http_proxy https_proxy ftp_proxy ssl_proxy all_proxy
+  unset HTTP_PROXY HTTPS_PROXY FTP_PROXY SSL_PROXY ALL_PROXY
+elif [[ -n $proxy ]]; then
+  proxy="$(python3 "$script_dir/beefcake-support.py" proxy-endpoint "$proxy")" || exit 1
+  proxy_url="http://$proxy"
+  export http_proxy="$proxy_url" https_proxy="$proxy_url" ftp_proxy="$proxy_url" ssl_proxy="$proxy_url"
+  export HTTP_PROXY="$proxy_url" HTTPS_PROXY="$proxy_url" FTP_PROXY="$proxy_url" SSL_PROXY="$proxy_url"
+  export all_proxy="$proxy_url" ALL_PROXY="$proxy_url"
+
+  # The multi-user daemon performs Nix downloads and cannot inherit this
+  # process's environment. Apply a /run-only drop-in for this invocation.
+  if [[ ${NIX_REMOTE:-daemon} =~ ^(daemon|auto)$ &&
+      -S /nix/var/nix/daemon-socket/socket && -d /run/systemd/system ]] &&
+      command -v systemctl >/dev/null; then
+    command -v sudo >/dev/null || die "sudo is required to proxy the system Nix daemon"
+    sudo -v || die "sudo authentication is required to proxy the system Nix daemon"
+    runtime_proxy_dropin="/run/systemd/system/nix-daemon.service.d/99-beefcake-proxy-$$.conf"
+    proxy_dropin_source="$work_dir/nix-daemon-proxy.conf"
+    python3 "$script_dir/beefcake-support.py" daemon-dropin "$proxy" > "$proxy_dropin_source"
+    sudo install -D -m 0644 -- "$proxy_dropin_source" "$runtime_proxy_dropin"
+    sudo systemctl daemon-reload
+    sudo systemctl restart nix-daemon.service
+    # Long ISO builds can outlive sudo's credential timeout. Keep authorization
+    # warm so the EXIT trap can reliably restore the daemon without prompting.
+    (
+      while kill -0 "$$" 2>/dev/null; do
+        sleep 45
+        sudo -n -v || exit
+      done
+    ) &
+    sudo_keepalive_pid=$!
+  fi
+fi
+
+nix_options=(--max-jobs "$local_jobs" --cores "$build_cores" --option builders-use-substitutes true)
+[[ -z $builders ]] || nix_options+=(--builders "$builders")
+nix_build() {
+  nix --extra-experimental-features 'nix-command flakes' build "${nix_options[@]}" "$@"
+}
+
+# A fresh derivation requires a real builder; cached release outputs alone
+# cannot prove that ARM jobs can run. Nothing is versioned or published here.
+note "Checking x86_64 and ARM64 builders"
+for system in "${systems[@]}"; do
+  BEEFCAKE_PROBE_FLAKE="$os_dir" BEEFCAKE_PROBE_SYSTEM="$system" \
+  BEEFCAKE_PROBE_NONCE="$(date +%s)-$$" nix_build --no-link --impure --expr '
+    let
+      flake = builtins.getFlake ("git+file://" + builtins.getEnv "BEEFCAKE_PROBE_FLAKE");
+      system = builtins.getEnv "BEEFCAKE_PROBE_SYSTEM";
+      pkgs = import flake.inputs.nixpkgs { inherit system; };
+    in pkgs.runCommand ("beefcake-builder-" + system + "-" + builtins.getEnv "BEEFCAKE_PROBE_NONCE") {
+      preferLocalBuild = false;
+      allowSubstitutes = false;
+    } "echo builder-ready > $out"
+  ' || die "$system builder unavailable. Configure local ARM emulation or a remote Nix builder; see docs/arm64.md."
+done
+(( ! check_builders )) || { note "Both architectures can build"; exit 0; }
+
+for command in git gh python3 curl cp sha256sum rsync ssh zstd flock nix-instantiate; do
+  command -v "$command" >/dev/null || die "required command is missing: $command"
+done
+exec {release_lock}> "$os_dir/.beefcake.lock"
+flock -n "$release_lock" || die "another BEEFCAKE release is running for $os_dir"
+
+if [[ -z "$version" ]]; then
+  read -r -p "Studio version (for example 0.1.9): " version
+fi
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid semantic version: $version"
+[[ $os_series =~ ^[0-9]+\.[0-9]+$ ]] || die "unsafe UmbraOS series"
+
+expected_tag="studio-v$version"
+if [[ -z "$tag" ]]; then
+  read -r -p "GitHub tag [$expected_tag]: " tag
+  tag="${tag:-$expected_tag}"
+fi
+[[ $tag == "$expected_tag" ]] || die "tag must be $expected_tag because UmbraOS derives it from the Studio version"
+
+if [[ -n $proxy ]] && (( ! skip_sourceforge )); then
+  command -v nc >/dev/null || die "nc is required for a proxied SourceForge upload"
+fi
+
+[[ $sf_user =~ ^[A-Za-z0-9._-]+$ ]] || die "unsafe SourceForge username"
+[[ $sf_project =~ ^[A-Za-z0-9._/-]+$ && $sf_project != *..* ]] || die "unsafe SourceForge project path"
+sf_folder="${sf_folder#/}"
+sf_folder="${sf_folder%/}"
+[[ -z $sf_folder || ( $sf_folder =~ ^[A-Za-z0-9._/-]+$ && $sf_folder != *..* ) ]] || die "unsafe SourceForge folder"
+
+note "Preflight"
+gh auth status || die "GitHub CLI is not authenticated"
+printf 'Studio:      %s\n' "$studio_dir"
+printf 'UmbraOS:     %s\n' "$os_dir"
+printf 'Release:     %s (%s)\n' "$github_repo" "$tag"
+printf 'Systems:     %s\n' "${systems[*]}"
+printf 'SourceForge: %s@frs.sourceforge.net:/home/frs/project/%s/%s\n' \
+  "$sf_user" "$sf_project" "$sf_folder"
+printf '\nStudio worktree:\n'
+git -C "$studio_dir" status --short
+printf '\nUmbraOS worktree:\n'
+git -C "$os_dir" status --short
+
+if (( ! assume_yes )); then
+  read -r -p "Build and publish this release? Type BEEFCAKE to continue: " confirmation
+  [[ $confirmation == BEEFCAKE ]] || die "publication cancelled"
+fi
+
+note "Setting Umbra Studio version to $version"
+python3 - "$studio_dir" "$version" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+version = sys.argv[2]
+
+def replace(path, pattern, replacement, expected=None):
+    text = path.read_text()
+    updated, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
+    if expected is not None and count != expected:
+        raise SystemExit(f"{path}: expected {expected} replacement(s), made {count}")
+    if not count:
+        raise SystemExit(f"{path}: version pattern was not found")
+    path.write_text(updated)
+
+replace(
+    root / "crates/umbra-gui/Cargo.toml",
+    r'(?m)^(version = ")[0-9]+\.[0-9]+\.[0-9]+("\s*)$',
+    rf'\g<1>{version}\g<2>',
+    1,
+)
+replace(
+    root / "flake.nix",
+    r'(?m)^(\s*version = ")[0-9]+\.[0-9]+\.[0-9]+(";\s*)$',
+    rf'\g<1>{version}\g<2>',
+    1,
+)
+replace(
+    root / "flake.nix",
+    r'umbra-studio-[0-9]+\.[0-9]+\.[0-9]+-(?:x86_64-linux|\$\{system\})\.tar\.zst',
+    f'umbra-studio-{version}-${{system}}.tar.zst',
+    1,
+)
+replace(
+    root / "crates/umbra-gui/ui/app.slint",
+    r'(?:Umbra )?Studio [0-9]+\.[0-9]+\.[0-9]+',
+    lambda match: ("Umbra " if match.group(0).startswith("Umbra ") else "") + f"Studio {version}",
+)
+replace(
+    root / "crates/umbra-gui/src/model_store.rs",
+    r'UmbraStudio/[0-9]+\.[0-9]+\.[0-9]+',
+    f'UmbraStudio/{version}',
+)
+
+lock = root / "Cargo.lock"
+parts = lock.read_text().split("[[package]]")
+changed = 0
+for index, part in enumerate(parts):
+    if re.search(r'(?m)^name = "umbra-studio-native"$', part):
+        parts[index], count = re.subn(
+            r'(?m)^version = "[0-9]+\.[0-9]+\.[0-9]+"$',
+            f'version = "{version}"',
+            part,
+            count=1,
+        )
+        changed += count
+if changed != 1:
+    raise SystemExit(f"{lock}: expected one umbra-studio-native package, changed {changed}")
+lock.write_text("[[package]]".join(parts))
+PY
+
+declare -A studio_hashes iso_hashes published_isos
+github_assets=()
+sourceforge_assets=()
+dist_dir="$studio_dir/dist"
+mkdir -p -- "$dist_dir"
+
+# Finish both Studio builds and audits before publishing either architecture.
+for system in "${systems[@]}"; do
+  note "Building the source-free Studio bundle ($system)"
+  studio_result="$studio_dir/result-beefcake-$version-$system"
+  nix_build "$studio_dir#packages.$system.release-bundle" -o "$studio_result"
+  versioned_archive="$dist_dir/umbra-studio-$version-$system.tar.zst"
+  archive_name="umbra-studio-$system.tar.zst"
+  upload_archive="$work_dir/$archive_name"
+  # Nix outputs are read-only, and a previous interrupted run may already have
+  # copied that mode into dist. Replace the directory entry atomically instead
+  # of trying to truncate the existing read-only file.
+  archive_stage="$(mktemp --tmpdir="$dist_dir" ".umbra-studio-$version-$system.XXXXXXXX")"
+  cp -L -- "$studio_result" "$archive_stage"
+  chmod 0444 "$archive_stage"
+  mv -fT -- "$archive_stage" "$versioned_archive"
+  python3 "$script_dir/beefcake-support.py" audit "$versioned_archive" "$system"
+  cp -L -- "$versioned_archive" "$upload_archive"
+  studio_hashes[$system]="$(nix hash file --type sha256 --sri "$upload_archive")"
+  (
+    cd -- "$work_dir"
+    sha256sum "$archive_name" > "$archive_name.sha256"
+  )
+  github_assets+=("$upload_archive" "$upload_archive.sha256")
+  printf 'Studio %s: %s\n' "$system" "${studio_hashes[$system]}"
+done
+
+note "Publishing both Studio architectures to GitHub ($tag)"
+if gh release view "$tag" --repo "$github_repo" >/dev/null 2>&1; then
+  gh release upload "$tag" "${github_assets[@]}" --repo "$github_repo" --clobber
+else
+  gh release create "$tag" "${github_assets[@]}" --repo "$github_repo" \
+    --title "Umbra Studio $version" \
+    --notes "Umbra Studio $version source-free Linux binaries for x86_64 and ARM64."
+fi
+
+# Do not update either OS pin until both public downloads verify successfully.
+for system in "${systems[@]}"; do
+  remote_archive="$work_dir/remote-umbra-studio-$system.tar.zst"
+  curl --fail --location --retry 3 \
+    "https://github.com/$github_repo/releases/download/$tag/umbra-studio-$system.tar.zst?beefcake=$(date +%s)" \
+    --output "$remote_archive"
+  remote_sri="$(nix hash file --type sha256 --sri "$remote_archive")"
+  [[ $remote_sri == "${studio_hashes[$system]}" ]] || die "GitHub verification failed for $system"
+  printf 'Verified GitHub asset (%s): %s\n' "$system" "$remote_sri"
+done
+
+note "Pinning both Studio hashes in UmbraOS"
+python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/studio/package.nix" \
+  "$version" "${studio_hashes[x86_64-linux]}" "${studio_hashes[aarch64-linux]}"
+nix-instantiate --parse "$os_dir/modules/studio/package.nix" >/dev/null
+
+# Choose one revision for the pair, without overwriting either architecture.
+date_stamp="$(date +%Y%m%d)"
+base_name="UmbraOS-$os_series-$date_stamp"
+revision=1
+while :; do
+  revision_suffix=""
+  (( revision == 1 )) || revision_suffix="v$revision"
+  collision=0
+  for system in "${systems[@]}"; do
+    candidate="$os_dir/$base_name$revision_suffix-$system.iso"
+    if [[ -e $candidate || -e $candidate.sha256 ]]; then collision=1; fi
+  done
+  (( collision )) || break
+  (( revision += 1 ))
+done
+
+for system in "${systems[@]}"; do
+  note "Building the UmbraOS ISO ($system)"
+  iso_result="$os_dir/result-beefcake-iso-$system"
+  nix_build "$os_dir#packages.$system.iso" -o "$iso_result"
+  nix_build "$os_dir#nixosConfigurations.umbra-live-$system.config.system.build.umbraIsoSizeCheck" --no-link
+  built_isos=("$iso_result"/iso/*.iso)
+  (( ${#built_isos[@]} == 1 )) || die "expected one ISO under $iso_result/iso, found ${#built_isos[@]}"
+  iso_name="$base_name$revision_suffix-$system.iso"
+  published_isos[$system]="$os_dir/$iso_name"
+  cp -L -- "${built_isos[0]}" "${published_isos[$system]}"
+  iso_hashes[$system]="$(nix hash file --type sha256 --sri "${published_isos[$system]}")"
+  (
+    cd -- "$os_dir"
+    sha256sum "$iso_name" > "$iso_name.sha256"
+  )
+  sourceforge_assets+=("${published_isos[$system]}" "${published_isos[$system]}.sha256")
+  printf 'ISO (%s): %s\n' "$system" "${published_isos[$system]}"
+done
+
+if (( skip_sourceforge )); then
+  note "SourceForge upload skipped for both ISOs"
+else
+  note "Uploading both ISOs and checksums to SourceForge"
+  remote_dir="/home/frs/project/$sf_project"
+  [[ -z $sf_folder ]] || remote_dir="$remote_dir/$sf_folder"
+  rsync_rsh="ssh"
+  if [[ -n $proxy ]]; then
+    proxy_ssh="$work_dir/ssh-via-proxy"
+    cat > "$proxy_ssh" <<EOF
+#!/usr/bin/env bash
+exec ssh -o 'ProxyCommand=nc -X connect -x $proxy %h %p' "\$@"
+EOF
+    chmod 700 "$proxy_ssh"
+    rsync_rsh="$proxy_ssh"
+  fi
+  RSYNC_RSH="$rsync_rsh" rsync \
+    --archive --human-readable --info=progress2 --partial --append-verify \
+    "${sourceforge_assets[@]}" "$sf_user@frs.sourceforge.net:$remote_dir/"
+fi
+
+note "Release complete"
+printf 'GitHub tag: %s\n' "$tag"
+for system in "${systems[@]}"; do
+  printf 'Studio %s (%s): %s\n' "$version" "$system" "${studio_hashes[$system]}"
+  printf 'UmbraOS ISO: %s\nUmbraOS SRI: %s\n' "${published_isos[$system]}" "${iso_hashes[$system]}"
+done
+printf '\nSource changes remain in the two worktrees for review and commit.\n'

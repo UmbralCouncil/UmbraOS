@@ -197,7 +197,9 @@ in
     # --- Catalog ----------------------------------------------------------
     # Versions are pinned to point releases, NOT rolling `latest`/`latest-stable`
     # symlinks, so a respin upstream doesn't silently break the pinned hash.
-    umbra.labs.images = {
+    # These pinned disks are x86 guests. Do not advertise them as native ARM
+    # labs; ARM courses supply their own aarch64 microVM runners.
+    umbra.labs.images = lib.optionalAttrs pkgs.stdenv.hostPlatform.isx86_64 {
       debian-lab = {
         class = "bundled";
         # Dated serial dir, not .../trixie/latest/. Set to the real released

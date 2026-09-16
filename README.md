@@ -36,6 +36,13 @@ Rather than shipping hundreds of tools and expecting users to figure everything 
 v0.1 foundation preview. Use disposable hardware or virtual machines while the
 installer continues hardware testing.
 
+## ARM64 builds
+
+Dedicated `aarch64-linux` targets support generic UEFI ARM machines and VMs:
+`nix build .#packages.aarch64-linux.iso`. See [ARM64 build instructions](docs/arm64.md)
+for Studio bundles, native builder requirements, and the first ARM release's
+remaining publication and boot-validation steps.
+
 ## Migrating an Existing NixOS Host
 
 Do not switch an existing machine directly to `.#default`: that output contains

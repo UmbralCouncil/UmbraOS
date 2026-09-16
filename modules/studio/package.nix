@@ -18,16 +18,23 @@
   libxi,
   libxcursor,
   libxrandr,
+  releaseArchive ? null,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "umbra-studio-bin";
-  version = "0.1.9";
+  version = "0.2.1";
 
-  src = fetchurl {
-    url = "https://github.com/UmbralCouncil/UmbraOS/releases/download/studio-v${finalAttrs.version}/umbra-studio-x86_64-linux.tar.zst";
-    hash = "sha256-zx0k3ii01rKMLOEg9bz3bFnmBk2Q+PV6ljjM4Dv3lDc=";
-  };
+  src = if releaseArchive != null then releaseArchive else fetchurl ({
+    url = "https://github.com/UmbralCouncil/UmbraOS/releases/download/studio-v${finalAttrs.version}/umbra-studio-${stdenv.hostPlatform.system}.tar.zst";
+  } // {
+      x86_64-linux = {
+        hash = "sha256-LK8x397dzw0qZc+ChijEEuQmx86+K+aB4Bw1z30mEDY=";
+      };
+      # Replace after producing the first native ARM64 release bundle. A local
+      # source-free archive can be supplied with umbra.studio.releaseArchive.
+      aarch64-linux = { hash = "sha256-kK/DiJkd1mZ0TkylNKjyMAjRAFVuurQuN5B243hmR1I="; };
+    }.${stdenv.hostPlatform.system});
 
   sourceRoot = ".";
   nativeBuildInputs = [ autoPatchelfHook makeWrapper zstd ];
@@ -63,7 +70,7 @@ stdenv.mkDerivation (finalAttrs: {
     description = "Native Umbra security-training application";
     license = lib.licenses.unfree;
     mainProgram = "umbra-studio";
-    platforms = [ "x86_64-linux" ];
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
 })

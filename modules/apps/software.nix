@@ -1,8 +1,9 @@
-{ inputs, lib, pkgs, settings, isLive ? false, ... }: let
+{ inputs, lib, pkgs, settings, config, isLive ? false, ... }: let
     # Bring in the unstable channel
     unstable = import inputs.nixpkgs-unstable { inherit (pkgs) system; };
     umbraStudio = pkgs.callPackage ../studio/package.nix {
-      coreRunner = inputs.self.nixosConfigurations.umbra-core-lab.config.microvm.declaredRunner;
+      releaseArchive = config.umbra.studio.releaseArchive;
+      coreRunner = inputs.self.nixosConfigurations."umbra-core-lab-${pkgs.system}".config.microvm.declaredRunner;
       mistralCpuRunner = inputs.self.packages.${pkgs.system}.ai-runner-cpu;
       llamaVulkanRunner = inputs.self.packages.${pkgs.system}.ai-runner-vulkan;
     };
@@ -12,6 +13,11 @@
     ];
     installedPackages = [ umbraStudio ] ++ commonPackages;
 in {
+  options.umbra.studio.releaseArchive = lib.mkOption {
+    type = lib.types.nullOr lib.types.path;
+    default = null;
+    description = "Optional source-free Studio archive for this host architecture, used before publishing a release.";
+  };
   # Persistent installs keep these in the user's Home Manager profile. The
   # ephemeral live account has no writable profile, so expose them system-wide.
   config = lib.mkMerge [

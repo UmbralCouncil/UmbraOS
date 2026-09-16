@@ -9,3 +9,12 @@ result-*
 umbra-studio-*.tar.zst
 attach-iso.sh
 umbra-source-*.tar.gz
+
+# Release orchestration lock
+.beefcake.lock
+/tools/__pycache__/
+
+# Per-machine installer state lives in the managed checkout but is never
+# replaced from upstream during an update.
+/installer-settings.nix
+/updater/target/

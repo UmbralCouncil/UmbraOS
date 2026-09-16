@@ -168,6 +168,7 @@ pkgs.writeShellApplication {
 
     cat > "$target/migration-settings.nix" <<EOF
     {
+      system = "${pkgs.stdenv.hostPlatform.system}";
       hostName = $(nix_quote "$host_name");
       timeZone = $(nix_quote "$time_zone");
       account = {

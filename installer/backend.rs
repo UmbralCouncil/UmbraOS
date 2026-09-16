@@ -22,6 +22,7 @@ const SPECTRUM_SOURCE: &str = "@SPECTRUM_SOURCE@";
 const LOG_PATH: &str = "/run/umbra-installer/install.log";
 const BACKEND_SOCKET: &str = "/run/umbra-installer/backend.sock";
 const BACKEND_PID: &str = "/run/umbra-installer/backend.pid";
+const UMBRA_REPOSITORY: &str = "https://github.com/UmbralCouncil/UmbraOS.git";
 
 static PROXY: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 
@@ -760,8 +761,16 @@ fn install_system(body: &str) -> BackendResult<String> {
         .and_then(|_| fs::create_dir_all("/mnt/etc"))
         .map_err(|error| BackendError::internal(format!("could not prepare /mnt: {error}")))?;
     run("mount", &[&esp, "/mnt/boot"])?;
-    run("cp", &["-r", UMBRA_SOURCE, "/mnt/etc/umbra"])?;
-    run("chmod", &["-R", "u+w", "/mnt/etc/umbra"])?;
+    // Install a real, root-owned checkout.  UMBRA_SOURCE remains used by the
+    // package build and pinned-input overrides, but installed systems update
+    // from this fixed upstream rather than an immutable Nix-store snapshot.
+    run(
+        "git",
+        &[
+            "clone", "--branch", "main", "--single-branch", "--origin", "origin",
+            UMBRA_REPOSITORY, "/mnt/etc/umbra",
+        ],
+    )?;
     run("nixos-generate-config", &["--root", "/mnt"])?;
     run(
         "cp",
@@ -773,7 +782,7 @@ fn install_system(body: &str) -> BackendResult<String> {
 
     let password_hash = hash_password(&password)?;
     let settings = format!(
-        "{{\n  timeZone = \"{timezone}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPasswordFile = \"/etc/umbra-password-hash\";\n  }};\n}}\n"
+        "{{\n  system = \"@SYSTEM@\";\n  timeZone = \"{timezone}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPasswordFile = \"/etc/umbra-password-hash\";\n  }};\n}}\n"
     );
     fs::write("/mnt/etc/umbra-password-hash", format!("{password_hash}\n"))
         .map_err(|error| BackendError::internal(format!("could not write password hash: {error}")))?;

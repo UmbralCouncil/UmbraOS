@@ -50,6 +50,7 @@ in
   # The installed system uses Limine, but the ISO boots via the iso-image
   # module's own boot mechanism; make sure the disk bootloader isn't pulled in.
   boot.loader.limine.enable = lib.mkForce false;
+  boot.loader.systemd-boot.enable = lib.mkForce false;
 
   # SDDM starts the disposable live account directly; installed systems retain
   # the same Breeze-based login manager without autologin.

@@ -1,5 +1,5 @@
 {
-  description = "Starter NixOS flake.";
+  description = "UmbraOS — x86_64 and ARM64 UEFI systems";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -11,193 +11,214 @@
     };
   };
   outputs = inputs@{ ... }: let
-    baseSettings = {
-      timeZone = "America/Chicago";        # Set your timezone
-      hostName = "umbra";
-      account = {
-        name = "Umbra";
-        # Direct builds are locked. The installer supplies a root-only
-        # hashedPasswordFile outside the flake and therefore outside the store.
-        hashedPassword = "!";
+    systems = [ "x86_64-linux" "aarch64-linux" ];
+    mkOutputs = system: let
+      baseSettings = {
+        timeZone = "America/Chicago";        # Set your timezone
+        hostName = "umbra";
+        account = {
+          name = "Umbra";
+          # Direct builds are locked. The installer supplies a root-only
+          # hashedPasswordFile outside the flake and therefore outside the store.
+          hashedPassword = "!";
+        };
+        /* We can set variables here and use them elsewhere. */
+        /* Example: */
+        /* myVar = "value"; */
       };
-      /* We can set variables here and use them elsewhere. */
-      /* Example: */
-      /* myVar = "value"; */
-    };
-    # The graphical installer writes this file only into the target's private
-    # flake copy. Normal source builds remain fully deterministic.
-    installSettings =
-      if builtins.pathExists ./installer-settings.nix
-      then import ./installer-settings.nix
-      else { };
-    settings = inputs.nixpkgs.lib.recursiveUpdate baseSettings installSettings;
-    migrationAvailable =
-      builtins.pathExists ./migration-settings.nix
-      && builtins.pathExists ./migration-hardware.nix
-      && builtins.pathExists ./migration-host.nix;
-    migrationSettings =
-      inputs.nixpkgs.lib.recursiveUpdate baseSettings
-        (if migrationAvailable then import ./migration-settings.nix else { });
-    system = "x86_64-linux";               # System architecture
+      # The graphical installer writes this file only into the target's private
+      # flake copy. Normal source builds remain fully deterministic.
+      installSettings =
+        if builtins.pathExists ./installer-settings.nix
+        then import ./installer-settings.nix
+        else { };
+      settings = inputs.nixpkgs.lib.recursiveUpdate baseSettings installSettings;
+      migrationAvailable =
+        builtins.pathExists ./migration-settings.nix
+        && builtins.pathExists ./migration-hardware.nix
+        && builtins.pathExists ./migration-host.nix;
+      migrationSettings =
+        inputs.nixpkgs.lib.recursiveUpdate baseSettings
+          (if migrationAvailable then import ./migration-settings.nix else { });
 
-    # Instantiate the unstable package set for this system so modules can
-    # take `unstable` as an argument and pull individual packages from it,
-    # e.g. `environment.systemPackages = [ unstable.somepackage ];`
-    unstable = import inputs.nixpkgs-unstable {
-      inherit system;
-      config.allowUnfree = true;
-    };
+      # Instantiate the unstable package set for this system so modules can
+      # take `unstable` as an argument and pull individual packages from it,
+      # e.g. `environment.systemPackages = [ unstable.somepackage ];`
+      unstable = import inputs.nixpkgs-unstable {
+        inherit system;
+        config.allowUnfree = true;
+      };
 
-    pkgs = import inputs.nixpkgs { inherit system; };
-    # CUDA's redistributable runtime carries NVIDIA's EULA. Keep that license
-    # exception isolated to the optional accelerator-pack output.
-    cudaPkgs = import inputs.nixpkgs {
-      inherit system;
-      config.allowUnfree = true;
-    };
-  in {
+      pkgs = import inputs.nixpkgs { inherit system; };
+      # CUDA's redistributable runtime carries NVIDIA's EULA. Keep that license
+      # exception isolated to the optional accelerator-pack output.
+      cudaPkgs = import inputs.nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
+    in {
 
-    # --- Contract check: the emitted catalog must match the vendored schema ---
-    # schema/images-schema.json is the single source of truth for the
-    # /etc/umbra/images.json contract (Umbra Studio vendors a byte-identical
-    # copy). This validates the *value* of the catalog rather than the built
-    # file, so it runs without realising the bundled image FODs — which means it
-    # stays green while `sha256 = lib.fakeHash` (the release gate below is what
-    # blocks shipping unpinned hashes; this check is purely about shape).
-    checks.${system}.images-schema =
-      let
-        catalog = inputs.self.nixosConfigurations.umbra-live.config.umbra.labs.catalog;
-        # unsafeDiscardStringContext: store_path carries a reference to the
-        # bundled .drv; strip it so writing the file needs no build/fetch.
-        catalogJson = pkgs.writeText "umbra-images.json"
-          (builtins.unsafeDiscardStringContext (builtins.toJSON catalog));
-      in
-      pkgs.runCommand "images-schema-check"
-        { nativeBuildInputs = [ pkgs.check-jsonschema ]; }
-        ''
-          check-jsonschema --schemafile ${./schema/images-schema.json} ${catalogJson}
-          touch $out
+      # --- Contract check: the emitted catalog must match the vendored schema ---
+      # schema/images-schema.json is the single source of truth for the
+      # /etc/umbra/images.json contract (Umbra Studio vendors a byte-identical
+      # copy). This validates the *value* of the catalog rather than the built
+      # file, so it runs without realising the bundled image FODs — which means it
+      # stays green while `sha256 = lib.fakeHash` (the release gate below is what
+      # blocks shipping unpinned hashes; this check is purely about shape).
+      checks.${system}.images-schema =
+        let
+          catalog = inputs.self.nixosConfigurations."umbra-live-${system}".config.umbra.labs.catalog;
+          # unsafeDiscardStringContext: store_path carries a reference to the
+          # bundled .drv; strip it so writing the file needs no build/fetch.
+          catalogJson = pkgs.writeText "umbra-images.json"
+            (builtins.unsafeDiscardStringContext (builtins.toJSON catalog));
+        in
+        pkgs.runCommand "images-schema-check"
+          { nativeBuildInputs = [ pkgs.check-jsonschema ]; }
+          ''
+            check-jsonschema --schemafile ${./schema/images-schema.json} ${catalogJson}
+            touch $out
+          '';
+
+      # --- Buildable artifacts -------------------------------------------------
+      packages.${system} = {
+        # `nix build` at the repository root builds the primary distributable.
+        default = inputs.self.nixosConfigurations."umbra-live-${system}".config.system.build.isoImage;
+
+        # The native eframe/egui installer and its constrained Rust backend.
+        # Useful as a standalone artifact for UI/backend testing.
+        installer = import ./installer {
+          inherit pkgs;
+          source = inputs.self;
+          flakeInputs = inputs;
+        };
+
+        # The bootable UmbraOS live ISO. The live configuration imports the ISO
+        # builder directly, so expose its native output rather than wrapping that
+        # builder through the multi-image framework a second time.
+        iso = inputs.self.nixosConfigurations."umbra-live-${system}".config.system.build.isoImage;
+
+        # The emitted /etc/umbra/images.json, realisable on its own so Umbra Studio
+        # can consume it as a test fixture without building or booting a system.
+        # This is the exact derivation the installed system ships, so the fixture
+        # is byte-identical to the on-disk file.
+        images-json =
+          inputs.self.nixosConfigurations."umbra-live-${system}".config.environment.etc."umbra/images.json".source;
+
+        # Public, reviewable Umbra Store catalog. Studio fetches this output from
+        # the Git repository and caches the last valid copy for offline use.
+        course-registry = pkgs.runCommand "umbra-course-registry" { } ''
+          install -Dm644 ${./course-registry.json} $out/registry.json
         '';
 
-    # --- Buildable artifacts -------------------------------------------------
-    packages.${system} = {
-      # `nix build` at the repository root builds the primary distributable.
-      default = inputs.self.nixosConfigurations.umbra-live.config.system.build.isoImage;
+        # Approved local tutor models. This output contains metadata only; model
+        # weights are downloaded by Studio after explicit learner consent.
+        model-registry = pkgs.runCommand "umbra-model-registry" { } ''
+          install -Dm644 ${./model-registry.json} $out/registry.json
+        '';
 
-      # The native eframe/egui installer and its constrained Rust backend.
-      # Useful as a standalone artifact for UI/backend testing.
-      installer = import ./installer {
-        inherit pkgs;
-        source = inputs.self;
-        flakeInputs = inputs;
+        # Local tutor runtimes are separate open-source packages. CPU and Vulkan
+        # ship with persistent installs; Studio realises the hardware-specific
+        # CUDA/ROCm outputs only when their accelerator probe succeeds.
+        ai-runner-cpu = pkgs.mistral-rs.override { acceleration = false; };
+        ai-runner-vulkan = pkgs.llama-cpp.override {
+          cudaSupport = false;
+          rocmSupport = false;
+          vulkanSupport = true;
+          blasSupport = false;
+        };
+
+        # Guarded host migration helper. It creates a private, host-specific copy
+        # of this flake; normal source builds never contain machine-local data.
+        migrate = import ./tools/migrate {
+          inherit pkgs;
+          source = inputs.self;
+        };
+      } // inputs.nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+        ai-runner-cuda = cudaPkgs.mistral-rs.override { acceleration = "cuda"; };
+        ai-runner-rocm = pkgs.llama-cpp.override {
+          cudaSupport = false;
+          rocmSupport = true;
+          vulkanSupport = false;
+          blasSupport = false;
+        };
       };
 
-      # The bootable UmbraOS live ISO. The live configuration imports the ISO
-      # builder directly, so expose its native output rather than wrapping that
-      # builder through the multi-image framework a second time.
-      iso = inputs.self.nixosConfigurations.umbra-live.config.system.build.isoImage;
+      # Having more than one configuration allows you to use the same
+      # flake on multiple devices or for different purposes
 
-      # The emitted /etc/umbra/images.json, realisable on its own so Umbra Studio
-      # can consume it as a test fixture without building or booting a system.
-      # This is the exact derivation the installed system ships, so the fixture
-      # is byte-identical to the on-disk file.
-      images-json =
-        inputs.self.nixosConfigurations.umbra-live.config.environment.etc."umbra/images.json".source;
-
-      # Public, reviewable Umbra Store catalog. Studio fetches this output from
-      # the Git repository and caches the last valid copy for offline use.
-      course-registry = pkgs.runCommand "umbra-course-registry" { } ''
-        install -Dm644 ${./course-registry.json} $out/registry.json
-      '';
-
-      # Approved local tutor models. This output contains metadata only; model
-      # weights are downloaded by Studio after explicit learner consent.
-      model-registry = pkgs.runCommand "umbra-model-registry" { } ''
-        install -Dm644 ${./model-registry.json} $out/registry.json
-      '';
-
-      # Local tutor runtimes are separate open-source packages. CPU and Vulkan
-      # ship with persistent installs; Studio realises the hardware-specific
-      # CUDA/ROCm outputs only when their accelerator probe succeeds.
-      ai-runner-cpu = pkgs.mistral-rs.override { acceleration = false; };
-      ai-runner-vulkan = pkgs.llama-cpp.override {
-        cudaSupport = false;
-        rocmSupport = false;
-        vulkanSupport = true;
-        blasSupport = false;
+      nixosConfigurations."umbra-${system}" = inputs.nixpkgs.lib.nixosSystem {
+        specialArgs = {
+          inherit inputs system settings unstable;
+          isLive = false;
+        };
+        modules = [
+          inputs.home-manager.nixosModules.home-manager
+          (if system == "aarch64-linux" && (installSettings.system or null) != system
+           then ./profile/arm64/hardware.nix
+           else ./profile/default/hardware.nix)
+          ./profile/default/configuration.nix
+          ./compose.nix
+        ];
       };
-      ai-runner-cuda = cudaPkgs.mistral-rs.override { acceleration = "cuda"; };
-      ai-runner-rocm = pkgs.llama-cpp.override {
-        cudaSupport = false;
-        rocmSupport = true;
-        vulkanSupport = false;
-        blasSupport = false;
+      nixosConfigurations."umbra-live-${system}" = inputs.nixpkgs.lib.nixosSystem {
+        specialArgs = {
+          inherit inputs system settings unstable;
+          isLive = true;
+        };
+        modules = [
+          inputs.home-manager.nixosModules.home-manager
+          ./profile/iso/hardware.nix
+          ./profile/iso/configuration.nix
+          ./modules/iso
+          ./modules/labs/images
+          ./compose.nix
+        ];
       };
 
-      # Guarded host migration helper. It creates a private, host-specific copy
-      # of this flake; normal source builds never contain machine-local data.
-      migrate = import ./tools/migrate {
-        inherit pkgs;
-        source = inputs.self;
+      # Open, reproducible guest used by the Umbra Core course. The proprietary
+      # Studio GUI is distributed separately as a prebuilt binary.
+      nixosConfigurations."umbra-core-lab-${system}" = inputs.nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          inputs.microvm.nixosModules.microvm
+          ./modules/studio/core-lab.nix
+        ];
+      };
+    } // inputs.nixpkgs.lib.optionalAttrs (migrationAvailable && system == (migrationSettings.system or "x86_64-linux")) {
+      # This output exists only inside a snapshot prepared by `nix run .#migrate`.
+      # It cannot accidentally use the repository's development-machine hardware
+      # file or default Umbra account.
+      nixosConfigurations.umbra-migration = inputs.nixpkgs.lib.nixosSystem {
+        specialArgs = {
+          inherit inputs system unstable;
+          settings = migrationSettings;
+          isLive = false;
+        };
+        modules = [
+          inputs.home-manager.nixosModules.home-manager
+          ./migration-hardware.nix
+          ./migration-host.nix
+          ./profile/default/configuration.nix
+          ./compose.nix
+        ];
       };
     };
-
-    # Having more than one configuration allows you to use the same
-    # flake on multiple devices or for different purposes
-
-    nixosConfigurations.default = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = {
-        inherit inputs system settings unstable;
-        isLive = false;
+  in inputs.nixpkgs.lib.recursiveUpdate
+    (inputs.nixpkgs.lib.foldl' inputs.nixpkgs.lib.recursiveUpdate { } (map mkOutputs systems))
+    {
+      nixosConfigurations = {
+        # Keep existing commands working; installer snapshots select their native system.
+        default = inputs.self.nixosConfigurations."umbra-${
+          if builtins.pathExists ./installer-settings.nix
+          then (import ./installer-settings.nix).system or "x86_64-linux"
+          else "x86_64-linux"
+        }";
+        umbra-live = inputs.self.nixosConfigurations.umbra-live-x86_64-linux;
+        umbra-core-lab = inputs.self.nixosConfigurations.umbra-core-lab-x86_64-linux;
+        umbra-arm64 = inputs.self.nixosConfigurations.umbra-aarch64-linux;
+        umbra-live-arm64 = inputs.self.nixosConfigurations.umbra-live-aarch64-linux;
+        umbra-core-lab-arm64 = inputs.self.nixosConfigurations.umbra-core-lab-aarch64-linux;
       };
-      modules = [
-        inputs.home-manager.nixosModules.home-manager
-        ./profile/default/hardware.nix
-        ./profile/default/configuration.nix
-        ./compose.nix
-      ];
     };
-    nixosConfigurations.umbra-live = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = {
-        inherit inputs system settings unstable;
-        isLive = true;
-      };
-      modules = [
-        inputs.home-manager.nixosModules.home-manager
-        ./profile/iso/hardware.nix
-        ./profile/iso/configuration.nix
-        ./modules/iso
-        ./modules/labs/images
-        ./compose.nix
-      ];
-    };
-
-    # Open, reproducible guest used by the Umbra Core course. The proprietary
-    # Studio GUI is distributed separately as a prebuilt binary.
-    nixosConfigurations.umbra-core-lab = inputs.nixpkgs.lib.nixosSystem {
-      inherit system;
-      modules = [
-        inputs.microvm.nixosModules.microvm
-        ./modules/studio/core-lab.nix
-      ];
-    };
-  } // inputs.nixpkgs.lib.optionalAttrs migrationAvailable {
-    # This output exists only inside a snapshot prepared by `nix run .#migrate`.
-    # It cannot accidentally use the repository's development-machine hardware
-    # file or default Umbra account.
-    nixosConfigurations.umbra-migration = inputs.nixpkgs.lib.nixosSystem {
-      specialArgs = {
-        inherit inputs system unstable;
-        settings = migrationSettings;
-        isLive = false;
-      };
-      modules = [
-        inputs.home-manager.nixosModules.home-manager
-        ./migration-hardware.nix
-        ./migration-host.nix
-        ./profile/default/configuration.nix
-        ./compose.nix
-      ];
-    };
-  };
 }
