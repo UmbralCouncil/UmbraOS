@@ -271,8 +271,8 @@ printf '\nUmbraOS worktree:\n'
 git -C "$os_dir" status --short
 
 if (( ! assume_yes )); then
-  read -r -p "Build and publish this release? Type BEEFCAKE to continue: " confirmation
-  [[ $confirmation == BEEFCAKE ]] || die "publication cancelled"
+  read -r -p "Build and publish this release? Type PROGAINER to continue: " confirmation
+  [[ $confirmation == PROGAINER ]] || die "publication cancelled"
 fi
 
 note "Setting Umbra Studio version to $version"
