@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const RUNTIME_PATH: &str = "@PATH@";
 const NIX_BIN: &str = "@NIX@";
 const MKPASSWD_BIN: &str = "@MKPASSWD@";
+const NIRI_BIN: &str = "@NIRI@";
 const UMBRA_SOURCE: &str = "@UMBRA_SOURCE@";
 const NIXPKGS_SOURCE: &str = "@NIXPKGS_SOURCE@";
 const NIXPKGS_UNSTABLE_SOURCE: &str = "@NIXPKGS_UNSTABLE_SOURCE@";
@@ -498,6 +499,36 @@ fn time_response() -> BackendResult<String> {
     Ok(cgi_response(None, "application/json", &body))
 }
 
+fn set_keyboard(body: &str) -> BackendResult<String> {
+    let layout = jq(body, ".layout // empty")?;
+    const ALLOWED: [&str; 12] = ["us", "gb", "de", "fr", "es", "it", "br", "pl", "se", "no", "dk", "fi"];
+    let layout_index = ALLOWED.iter().position(|candidate| *candidate == layout)
+        .ok_or_else(|| BackendError::client("unsupported keyboard layout"))?
+        .to_string();
+    let runtime = Path::new("/run/user/1000");
+    let socket = fs::read_dir(runtime)
+        .map_err(|error| BackendError::internal(format!("could not inspect Niri runtime: {error}")))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name().and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("niri.") && name.ends_with(".sock"))
+                && fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_socket())
+        })
+        .ok_or_else(|| BackendError::internal("Niri IPC socket was not found"))?;
+    let status = Command::new("runuser")
+        .args(["-u", "nixos", "--"])
+        .env("NIRI_SOCKET", &socket)
+        .arg(NIRI_BIN)
+        .args(["msg", "action", "switch-layout", &layout_index])
+        .status()
+        .map_err(|error| BackendError::internal(format!("could not switch keyboard layout: {error}")))?;
+    if !status.success() {
+        return Err(BackendError::internal("Niri rejected the keyboard layout change"));
+    }
+    Ok(cgi_response(None, "application/json", "{\"ok\":true}"))
+}
+
 fn verify_https() -> BackendResult<()> {
     output(
         "curl",
@@ -844,6 +875,12 @@ fn handle_request(raw: &str, expected_token: &str, install_lock: &Mutex<()>) -> 
                 set_proxy(&body)
             }
             "time" => time_response(),
+            "keyboard-set" => {
+                if method != "POST" {
+                    return Err(BackendError::client("POST required"));
+                }
+                set_keyboard(&body)
+            }
             "install" => {
                 if method != "POST" {
                     return Err(BackendError::client("POST required"));

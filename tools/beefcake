@@ -24,6 +24,7 @@ Options:
   --proxy HOST:PORT       HTTP proxy for client downloads and SourceForge SSH
   --no-proxy              Disable inherited client and SourceForge proxies
   --skip-sourceforge      Build both ISOs without uploading them
+  --continue-sourceforge Resume the newest complete local ISO pair, then exit
   --builders SPEC         Override Nix's remote builder list for this run
   --check-builders        Test both build architectures, then exit (no release)
   --jobs N                Concurrent local Nix jobs (default: auto)
@@ -51,8 +52,9 @@ BEEFCAKE does not source .zshrc or write proxy settings into /etc/nixos.
 Both x86_64-linux and aarch64-linux are always built. ARM can use local
 emulation or a remote Nix builder. Run --check-builders to test your setup.
 
-The command is restartable. GitHub assets are replaced with --clobber and
-SourceForge uploads use rsync's partial-file and append verification support.
+The command is restartable. Existing GitHub release assets are retained and
+only missing architecture/checksum files are uploaded. SourceForge uploads use
+rsync's partial-file and append verification support.
 EOF
 }
 
@@ -71,6 +73,7 @@ tag=""
 proxy=""
 proxy_choice="auto"
 skip_sourceforge=0
+continue_sourceforge=0
 assume_yes=0
 check_builders=0
 builders="${UMBRA_BUILDERS:-}"
@@ -118,6 +121,10 @@ while (( $# )); do
       skip_sourceforge=1
       shift
       ;;
+    --continue-sourceforge)
+      continue_sourceforge=1
+      shift
+      ;;
     --yes)
       assume_yes=1
       shift
@@ -136,7 +143,6 @@ done
 
 [[ $local_jobs == auto || $local_jobs =~ ^[1-9][0-9]*$ ]] || die "--jobs must be auto or a positive integer"
 [[ $build_cores =~ ^[0-9]+$ ]] || die "--cores must be a non-negative integer"
-command -v nix >/dev/null || die "required command is missing: nix"
 command -v python3 >/dev/null || die "required command is missing: python3"
 
 work_dir="$(mktemp -d -t beefcake.XXXXXXXX)"
@@ -204,6 +210,65 @@ elif [[ -n $proxy ]]; then
   fi
 fi
 
+[[ $sf_user =~ ^[A-Za-z0-9._-]+$ ]] || die "unsafe SourceForge username"
+[[ $sf_project =~ ^[A-Za-z0-9._/-]+$ && $sf_project != *..* ]] || die "unsafe SourceForge project path"
+sf_folder="${sf_folder#/}"
+sf_folder="${sf_folder%/}"
+[[ -z $sf_folder || ( $sf_folder =~ ^[A-Za-z0-9._/-]+$ && $sf_folder != *..* ) ]] || die "unsafe SourceForge folder"
+
+upload_sourceforge() {
+  (( $# > 0 )) || die "no SourceForge assets were supplied"
+  command -v rsync >/dev/null || die "required command is missing: rsync"
+  command -v ssh >/dev/null || die "required command is missing: ssh"
+  local remote_dir="/home/frs/project/$sf_project"
+  [[ -z $sf_folder ]] || remote_dir="$remote_dir/$sf_folder"
+  local rsync_rsh="ssh"
+  if [[ -n $proxy ]]; then
+    command -v nc >/dev/null || die "nc is required for a proxied SourceForge upload"
+    local proxy_ssh="$work_dir/ssh-via-proxy"
+    cat > "$proxy_ssh" <<EOF
+#!/usr/bin/env bash
+exec ssh -o 'ProxyCommand=nc -X connect -x $proxy %h %p' "\$@"
+EOF
+    chmod 700 "$proxy_ssh"
+    rsync_rsh="$proxy_ssh"
+  fi
+  RSYNC_RSH="$rsync_rsh" rsync \
+    --archive --human-readable --info=progress2 --partial --append-verify \
+    "$@" "$sf_user@frs.sourceforge.net:$remote_dir/"
+}
+
+if (( continue_sourceforge )); then
+  (( ! skip_sourceforge )) || die "--continue-sourceforge conflicts with --skip-sourceforge"
+  candidates=("$os_dir"/UmbraOS-"$os_series"-*-x86_64-linux.iso)
+  (( ${#candidates[@]} > 0 )) || die "no local x86_64 UmbraOS ISO was found"
+  mapfile -t candidates < <(printf '%s\n' "${candidates[@]}" | sort -Vr)
+  resume_assets=()
+  for x86_iso in "${candidates[@]}"; do
+    prefix="${x86_iso%-x86_64-linux.iso}"
+    arm_iso="$prefix-aarch64-linux.iso"
+    if [[ -f $arm_iso && -f $x86_iso.sha256 && -f $arm_iso.sha256 ]]; then
+      resume_assets=("$x86_iso" "$x86_iso.sha256" "$arm_iso" "$arm_iso.sha256")
+      break
+    fi
+  done
+  (( ${#resume_assets[@]} == 4 )) || die "no complete x86_64/ARM64 ISO pair with checksums was found"
+  note "Verifying the ISO pair before resuming SourceForge"
+  for iso in "${resume_assets[0]}" "${resume_assets[2]}"; do
+    read -r expected_hash recorded_name < "$iso.sha256" || die "could not read $iso.sha256"
+    [[ $expected_hash =~ ^[0-9a-fA-F]{64}$ ]] || die "invalid checksum in $iso.sha256"
+    recorded_name="${recorded_name#\*}"
+    [[ $recorded_name == "${iso##*/}" ]] || die "$iso.sha256 names a different file"
+    actual_hash="$(sha256sum -- "$iso")"
+    [[ ${actual_hash%% *} == "$expected_hash" ]] || die "local checksum failed for $iso"
+  done
+  note "Continuing both ISO transfers to SourceForge"
+  upload_sourceforge "${resume_assets[@]}"
+  note "SourceForge transfer complete"
+  exit 0
+fi
+
+command -v nix >/dev/null || die "required command is missing: nix"
 nix_options=(--max-jobs "$local_jobs" --cores "$build_cores" --option builders-use-substitutes true)
 [[ -z $builders ]] || nix_options+=(--builders "$builders")
 nix_build() {
@@ -250,12 +315,6 @@ fi
 if [[ -n $proxy ]] && (( ! skip_sourceforge )); then
   command -v nc >/dev/null || die "nc is required for a proxied SourceForge upload"
 fi
-
-[[ $sf_user =~ ^[A-Za-z0-9._-]+$ ]] || die "unsafe SourceForge username"
-[[ $sf_project =~ ^[A-Za-z0-9._/-]+$ && $sf_project != *..* ]] || die "unsafe SourceForge project path"
-sf_folder="${sf_folder#/}"
-sf_folder="${sf_folder%/}"
-[[ -z $sf_folder || ( $sf_folder =~ ^[A-Za-z0-9._/-]+$ && $sf_folder != *..* ) ]] || die "unsafe SourceForge folder"
 
 note "Preflight"
 gh auth status || die "GitHub CLI is not authenticated"
@@ -373,10 +432,31 @@ done
 
 note "Publishing both Studio architectures to GitHub ($tag)"
 if gh release view "$tag" --repo "$github_repo" >/dev/null 2>&1; then
-  gh release upload "$tag" "${github_assets[@]}" --repo "$github_repo" --clobber
+  existing_asset_listing="$(
+    gh release view "$tag" --repo "$github_repo" --json assets --jq '.assets[].name'
+  )" || die "could not inspect assets for existing GitHub release $tag"
+  existing_asset_names=()
+  while IFS= read -r asset_name; do
+    [[ -z $asset_name ]] || existing_asset_names+=("$asset_name")
+  done <<< "$existing_asset_listing"
+  declare -A existing_assets=()
+  for asset_name in "${existing_asset_names[@]}"; do
+    existing_assets["$asset_name"]=1
+  done
+  missing_assets=()
+  for asset in "${github_assets[@]}"; do
+    asset_name="${asset##*/}"
+    [[ -n ${existing_assets[$asset_name]:-} ]] || missing_assets+=("$asset")
+  done
+  if (( ${#missing_assets[@]} )); then
+    note "Uploading ${#missing_assets[@]} missing Studio release asset(s)"
+    gh release upload "$tag" "${missing_assets[@]}" --repo "$github_repo"
+  else
+    note "All Studio architecture archives and checksums are already present"
+  fi
 else
   gh release create "$tag" "${github_assets[@]}" --repo "$github_repo" \
-    --title "Umbra Studio $version" \
+    --title "Studio $version" \
     --notes "Umbra Studio $version source-free Linux binaries for x86_64 and ARM64."
 fi
 
@@ -435,21 +515,7 @@ if (( skip_sourceforge )); then
   note "SourceForge upload skipped for both ISOs"
 else
   note "Uploading both ISOs and checksums to SourceForge"
-  remote_dir="/home/frs/project/$sf_project"
-  [[ -z $sf_folder ]] || remote_dir="$remote_dir/$sf_folder"
-  rsync_rsh="ssh"
-  if [[ -n $proxy ]]; then
-    proxy_ssh="$work_dir/ssh-via-proxy"
-    cat > "$proxy_ssh" <<EOF
-#!/usr/bin/env bash
-exec ssh -o 'ProxyCommand=nc -X connect -x $proxy %h %p' "\$@"
-EOF
-    chmod 700 "$proxy_ssh"
-    rsync_rsh="$proxy_ssh"
-  fi
-  RSYNC_RSH="$rsync_rsh" rsync \
-    --archive --human-readable --info=progress2 --partial --append-verify \
-    "${sourceforge_assets[@]}" "$sf_user@frs.sourceforge.net:$remote_dir/"
+  upload_sourceforge "${sourceforge_assets[@]}"
 fi
 
 note "Release complete"

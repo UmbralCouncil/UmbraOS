@@ -44,7 +44,9 @@ in
 
       input {
           keyboard {
-              xkb { layout "us"; }
+              # Keep a curated installer-friendly set loaded so the constrained
+              # installer backend can switch instantly through Niri IPC.
+              xkb { layout "us,gb,de,fr,es,it,br,pl,se,no,dk,fi"; }
           }
           touchpad {
               tap

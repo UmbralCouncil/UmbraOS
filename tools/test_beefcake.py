@@ -54,7 +54,17 @@ if command == "nix":
     else: sys.exit("unexpected nix invocation")
 elif command == "gh":
     if args[:2] == ["release", "view"]:
-        sys.exit(0 if os.environ.get("BEEFCAKE_TEST_EXISTING") else 1)
+        if not os.environ.get("BEEFCAKE_TEST_EXISTING"): sys.exit(1)
+        if "--json" in args:
+            assets = os.environ.get("BEEFCAKE_TEST_EXISTING_ASSETS")
+            if assets is None:
+                assets = ",".join(
+                    f"umbra-studio-{system}.tar.zst{suffix}"
+                    for system in ("x86_64-linux", "aarch64-linux")
+                    for suffix in ("", ".sha256")
+                )
+            print("\n".join(filter(None, assets.split(","))))
+        sys.exit(0)
     if args[:2] in (["release", "create"], ["release", "upload"]):
         for arg in args:
             path = pathlib.Path(arg)
@@ -148,6 +158,24 @@ class ReleaseTests(unittest.TestCase):
         return [args for command, args, _ in self.calls()
                 if command == "gh" and args[:2] in (["release", "create"], ["release", "upload"])]
 
+    def seed_existing_release(self, asset_names=None):
+        if asset_names is None:
+            asset_names = [
+                f"umbra-studio-{system}.tar.zst{suffix}"
+                for system in SUPPORT.SYSTEMS
+                for suffix in ("", ".sha256")
+            ]
+        remote = self.root / "remote"
+        for name in asset_names:
+            target = remote / name
+            system = next(system for system in SUPPORT.SYSTEMS if system in name)
+            source = self.root / f"{system}.tar.zst"
+            if name.endswith(".sha256"):
+                digest = hashlib.sha256(source.read_bytes()).hexdigest()
+                target.write_text(f"{digest}  {name.removesuffix('.sha256')}\n")
+            else:
+                shutil.copy2(source, target)
+
     def test_full_release_pins_and_uploads_both_architectures(self):
         # Re-running the same version must replace Nix-style read-only local
         # archives left by an interrupted release.
@@ -222,15 +250,57 @@ class ReleaseTests(unittest.TestCase):
 
     def test_existing_release_and_filename_collision(self):
         self.env["BEEFCAKE_TEST_EXISTING"] = "1"
+        self.seed_existing_release()
         existing = self.os / "UmbraOS-26.05-20260910-aarch64-linux.iso"
         existing.write_bytes(b"previous release")
         result = self.run_release("--skip-sourceforge")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.publications()[0][:2], ["release", "upload"])
+        self.assertFalse(self.publications())
         self.assertEqual(existing.read_bytes(), b"previous release")
         for system in SUPPORT.SYSTEMS:
             self.assertTrue((self.os / f"UmbraOS-26.05-20260910v2-{system}.iso").exists())
         self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
+
+    def test_existing_release_uploads_only_missing_studio_assets(self):
+        self.env["BEEFCAKE_TEST_EXISTING"] = "1"
+        existing_assets = [
+            "umbra-studio-x86_64-linux.tar.zst",
+            "umbra-studio-x86_64-linux.tar.zst.sha256",
+            "umbra-studio-aarch64-linux.tar.zst",
+        ]
+        self.env["BEEFCAKE_TEST_EXISTING_ASSETS"] = ",".join(existing_assets)
+        self.seed_existing_release(existing_assets)
+        result = self.run_release("--skip-sourceforge")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        publications = self.publications()
+        self.assertEqual(len(publications), 1)
+        self.assertEqual(publications[0][:2], ["release", "upload"])
+        uploaded = [Path(arg).name for arg in publications[0]
+                    if Path(arg).name.startswith("umbra-studio-")]
+        self.assertEqual(uploaded, ["umbra-studio-aarch64-linux.tar.zst.sha256"])
+        self.assertNotIn("--clobber", publications[0])
+
+    def test_continue_sourceforge_resumes_newest_complete_iso_pair_only(self):
+        older = "UmbraOS-26.05-20260909"
+        newest = "UmbraOS-26.05-20260910"
+        for prefix in (older, newest):
+            for system in SUPPORT.SYSTEMS:
+                iso = self.os / f"{prefix}-{system}.iso"
+                iso.write_bytes(f"{prefix} {system}".encode())
+                digest = hashlib.sha256(iso.read_bytes()).hexdigest()
+                Path(str(iso) + ".sha256").write_text(f"{digest}  {iso.name}\n")
+
+        result = subprocess.run(
+            [str(TOOLS / "beefcake"), "--continue-sourceforge", "--no-proxy"],
+            env=self.env, text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        uploads = [args for command, args, _ in self.calls() if command == "rsync"]
+        self.assertEqual(len(uploads), 1)
+        uploaded = [Path(arg).name for arg in uploads[0] if arg.endswith((".iso", ".sha256"))]
+        self.assertEqual(len(uploaded), 4)
+        self.assertTrue(all(name.startswith(newest) for name in uploaded))
+        self.assertFalse(any(command in ("nix", "gh", "curl") for command, _, _ in self.calls()))
 
     def test_pin_failure_is_atomic(self):
         self.pin.write_text(self.pin.read_text().replace("aarch64-linux =", "missing-arm ="))

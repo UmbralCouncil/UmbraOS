@@ -17,6 +17,12 @@ const BLUE: Color32 = Color32::from_rgb(80, 183, 245);
 const MUTED: Color32 = Color32::from_rgb(164, 174, 205);
 const BORDER: Color32 = Color32::from_rgb(48, 65, 120);
 const DANGER: Color32 = Color32::from_rgb(255, 145, 166);
+const KEYBOARD_LAYOUTS: [(&str, &str); 12] = [
+    ("us", "English (US)"), ("gb", "English (UK)"), ("de", "German"),
+    ("fr", "French"), ("es", "Spanish"), ("it", "Italian"),
+    ("br", "Portuguese (Brazil)"), ("pl", "Polish"), ("se", "Swedish"),
+    ("no", "Norwegian"), ("dk", "Danish"), ("fi", "Finnish"),
+];
 
 #[derive(Clone, Default, Deserialize)]
 struct Device {
@@ -65,6 +71,7 @@ enum Event {
     WifiConnected(Result<String, String>),
     ProxySet(Result<String, String>),
     Time(Result<TimeResponse, String>),
+    KeyboardSet(Result<String, String>),
     Installed(Result<String, String>),
     Log(String),
 }
@@ -85,6 +92,8 @@ struct Installer {
     proxy_url: String,
     proxy_status: String,
     timezone: String,
+    keyboard_layout: String,
+    keyboard_status: String,
     timezones: Vec<String>,
     time_filter: String,
     username: String,
@@ -151,7 +160,7 @@ impl Installer {
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
             wifi_password: String::new(), wifi_status: "Scanning…".into(), timezone: "America/New_York".into(),
             advanced_networking: false, proxy_url: String::new(), proxy_status: String::new(),
-            timezones: vec![], time_filter: String::new(),
+            timezones: vec![], time_filter: String::new(), keyboard_layout: "us".into(), keyboard_status: String::new(),
             username: "umbra".into(), hostname: "umbra".into(), password: String::new(),
             password2: String::new(), confirmation: String::new(), busy: false, installing: false,
             result: String::new(), logs: vec![], tx, rx,
@@ -192,6 +201,7 @@ impl Installer {
                 Event::WifiConnected(result) => { self.busy = false; match result { Ok(ssid) => { self.wifi_password.clear(); self.wifi_status = format!("Connected to {ssid}"); }, Err(error) => self.wifi_status = error } }
                 Event::ProxySet(result) => { self.busy = false; match result { Ok(_) => self.proxy_status = if self.proxy_url.is_empty() { "Direct connection verified".into() } else { "Proxy connection verified".into() }, Err(error) => self.proxy_status = error } }
                 Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; }, Err(error) => self.result = error },
+                Event::KeyboardSet(result) => { self.busy = false; self.keyboard_status = result.map(|_| "Keyboard layout applied".to_owned()).unwrap_or_else(|error| error); }
                 Event::Installed(result) => { self.busy = false; self.installing = false; self.result = result.unwrap_or_else(|e| e); }
                 Event::Log(line) => { self.logs.push(line); if self.logs.len() > 500 { self.logs.drain(..100); } }
             }
@@ -262,6 +272,23 @@ impl Installer {
                 ui.add_space(8.0);
                 ui.label(RichText::new("The selected timezone is applied to the installed system.").small().color(MUTED));
             });
+        });
+        ui.add_space(14.0);
+        Self::card(ui, |ui| {
+            ui.label(RichText::new("Keyboard layout").size(17.0).strong());
+            ui.label(RichText::new("Changes the active layout immediately for the live installer session.").small().color(MUTED));
+            ui.add_space(8.0);
+            let previous = self.keyboard_layout.clone();
+            let selected = KEYBOARD_LAYOUTS.iter().find(|(id, _)| *id == self.keyboard_layout).map(|(_, label)| *label).unwrap_or("English (US)");
+            egui::ComboBox::from_id_salt("keyboard-layout").selected_text(selected).show_ui(ui, |ui| {
+                for (id, label) in KEYBOARD_LAYOUTS { ui.selectable_value(&mut self.keyboard_layout, id.to_owned(), label); }
+            });
+            if self.keyboard_layout != previous {
+                self.busy = true;
+                self.keyboard_status = "Applying keyboard layout…".into();
+                spawn_rpc::<Value, _>(self.token.clone(), "keyboard-set", json!({"layout": self.keyboard_layout}), self.tx.clone(), |result| Event::KeyboardSet(result.map(|_| "ok".to_owned())));
+            }
+            if !self.keyboard_status.is_empty() { ui.label(RichText::new(&self.keyboard_status).small().color(MUTED)); }
         });
         ui.add_space(14.0);
         Self::card(ui, |ui| {
