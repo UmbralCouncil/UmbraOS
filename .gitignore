@@ -17,4 +17,5 @@ umbra-source-*.tar.gz
 # Per-machine installer state lives in the managed checkout but is never
 # replaced from upstream during an update.
 /installer-settings.nix
+/installer/target/
 /updater/target/

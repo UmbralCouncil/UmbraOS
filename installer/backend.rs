@@ -443,7 +443,11 @@ fn wifi_response() -> BackendResult<String> {
             json_escape(&fields[3]),
         ));
     }
-    let body = format!("{{\"networks\":[{}]}}", networks.join(","));
+    let body = format!(
+        "{{\"networks\":[{}],\"online\":{}}}",
+        networks.join(","),
+        verify_https().is_ok(),
+    );
     Ok(cgi_response(None, "application/json", &body))
 }
 
@@ -459,19 +463,15 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
         ));
     }
     let mut command = Command::new("nmcli");
-    command.args([
-        "--wait", "30", "--passwd-file", "/proc/self/fd/0",
-        "device", "wifi", "connect", ssid.as_str(),
-    ]);
-    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|error| {
+    command.args(["--wait", "30", "device", "wifi", "connect"])
+        .arg(&ssid);
+    if !password.is_empty() {
+        command.args(["password", password.as_str()]);
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = command.spawn().map_err(|error| {
         BackendError::internal(format!("could not start nmcli: {error}"))
     })?;
-    if !password.is_empty() {
-        child.stdin.take().ok_or_else(|| BackendError::internal("nmcli stdin unavailable"))?
-            .write_all(format!("802-11-wireless-security.psk:{password}\n").as_bytes())
-            .map_err(|error| BackendError::internal(format!("could not send Wi-Fi secret to nmcli: {error}")))?;
-    }
     let result = child.wait_with_output().map_err(|error| {
         BackendError::internal(format!("could not read nmcli output: {error}"))
     })?;
@@ -480,11 +480,11 @@ fn connect_wifi(body: &str) -> BackendResult<String> {
             "nmcli failed: {}", String::from_utf8_lossy(&result.stderr).trim()
         )));
     }
-    Ok(cgi_response(
-        None,
-        "application/json",
-        &format!("{{\"ok\":true,\"ssid\":{}}}", json_escape(&ssid)),
-    ))
+    let online = verify_https().is_ok();
+    Ok(cgi_response(None, "application/json", &format!(
+        "{{\"ok\":true,\"ssid\":{},\"online\":{online}}}",
+        json_escape(&ssid),
+    )))
 }
 
 fn time_response() -> BackendResult<String> {

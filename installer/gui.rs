@@ -54,7 +54,16 @@ struct Network {
 }
 
 #[derive(Deserialize)]
-struct WifiResponse { networks: Vec<Network> }
+struct WifiResponse {
+    networks: Vec<Network>,
+    online: bool,
+}
+
+#[derive(Deserialize)]
+struct WifiConnectResponse {
+    ssid: String,
+    online: bool,
+}
 
 #[derive(Deserialize)]
 struct TimeResponse {
@@ -68,7 +77,7 @@ enum InstallMode { Erase, Manual }
 enum Event {
     Disks(Result<DisksResponse, String>),
     Wifi(Result<WifiResponse, String>),
-    WifiConnected(Result<String, String>),
+    WifiConnected(Result<WifiConnectResponse, String>),
     ProxySet(Result<String, String>),
     Time(Result<TimeResponse, String>),
     KeyboardSet(Result<String, String>),
@@ -88,6 +97,7 @@ struct Installer {
     wifi_ssid: String,
     wifi_password: String,
     wifi_status: String,
+    internet_connected: bool,
     advanced_networking: bool,
     proxy_url: String,
     proxy_status: String,
@@ -158,7 +168,8 @@ impl Installer {
         let mut app = Self {
             token, step: 0, mode: InstallMode::Erase, disks: vec![], target_disk: String::new(),
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
-            wifi_password: String::new(), wifi_status: "Scanning…".into(), timezone: "America/New_York".into(),
+            wifi_password: String::new(), wifi_status: "Scanning…".into(), internet_connected: false,
+            timezone: "America/New_York".into(),
             advanced_networking: false, proxy_url: String::new(), proxy_status: String::new(),
             timezones: vec![], time_filter: String::new(), keyboard_layout: "us".into(), keyboard_status: String::new(),
             username: "umbra".into(), hostname: "umbra".into(), password: String::new(),
@@ -197,9 +208,9 @@ impl Installer {
                     self.disks = data.blockdevices.into_iter().filter(|d| d.path != data.umbra_live_disk).collect();
                     if self.target_disk.is_empty() { self.target_disk = self.disks.iter().find(|d| d.kind == "disk").map(|d| d.path.clone()).unwrap_or_default(); }
                 }, Err(error) => self.result = error } }
-                Event::Wifi(result) => match result { Ok(data) => { self.networks = data.networks; if let Some(n) = self.networks.iter().find(|n| n.connected) { self.wifi_ssid = n.ssid.clone(); self.wifi_status = format!("Connected to {}", n.ssid); } else { self.wifi_status = "Select a network to connect".into(); } }, Err(error) => self.wifi_status = error },
-                Event::WifiConnected(result) => { self.busy = false; match result { Ok(ssid) => { self.wifi_password.clear(); self.wifi_status = format!("Connected to {ssid}"); }, Err(error) => self.wifi_status = error } }
-                Event::ProxySet(result) => { self.busy = false; match result { Ok(_) => self.proxy_status = if self.proxy_url.is_empty() { "Direct connection verified".into() } else { "Proxy connection verified".into() }, Err(error) => self.proxy_status = error } }
+                Event::Wifi(result) => match result { Ok(data) => { self.internet_connected = data.online; self.networks = data.networks; if let Some(n) = self.networks.iter().find(|n| n.connected) { self.wifi_ssid = n.ssid.clone(); self.wifi_status = if self.internet_connected { format!("Connected to {} — internet verified", n.ssid) } else { format!("Connected to {} — no internet access", n.ssid) }; } else if self.internet_connected { self.wifi_status = "Internet connected through Ethernet".into(); } else { self.wifi_status = "Select a network to connect".into(); } }, Err(error) => { self.internet_connected = false; self.wifi_status = error; } },
+                Event::WifiConnected(result) => { self.busy = false; match result { Ok(data) => { self.wifi_password.clear(); self.internet_connected = data.online; self.wifi_status = if data.online { format!("Connected to {} — internet verified", data.ssid) } else { format!("Connected to {} — no internet access", data.ssid) }; }, Err(error) => self.wifi_status = error } }
+                Event::ProxySet(result) => { self.busy = false; match result { Ok(_) => { self.internet_connected = true; self.proxy_status = if self.proxy_url.is_empty() { "Direct connection verified".into() } else { "Proxy connection verified".into() }; }, Err(error) => self.proxy_status = error } }
                 Event::Time(result) => match result { Ok(data) => { self.timezone = data.timezone; self.timezones = data.timezones; }, Err(error) => self.result = error },
                 Event::KeyboardSet(result) => { self.busy = false; self.keyboard_status = result.map(|_| "Keyboard layout applied".to_owned()).unwrap_or_else(|error| error); }
                 Event::Installed(result) => { self.busy = false; self.installing = false; self.result = result.unwrap_or_else(|e| e); }
@@ -257,7 +268,7 @@ impl Installer {
                 ui.add(egui::TextEdit::singleline(&mut self.wifi_password).password(true)).labelled_by(password_label.id);
                 if ui.add_enabled(!self.busy && !self.wifi_ssid.is_empty(), egui::Button::new("Connect")).clicked() {
                     self.busy = true; let ssid = self.wifi_ssid.clone();
-                    spawn_rpc::<Value, _>(self.token.clone(), "wifi-connect", json!({"ssid": ssid, "password": self.wifi_password}), self.tx.clone(), move |r| Event::WifiConnected(r.map(|_| ssid)));
+                    spawn_rpc::<WifiConnectResponse, _>(self.token.clone(), "wifi-connect", json!({"ssid": ssid, "password": self.wifi_password}), self.tx.clone(), Event::WifiConnected);
                 }
                 ui.add_space(8.0); ui.label(RichText::new(&self.wifi_status).small().color(MUTED));
             });
@@ -384,6 +395,7 @@ impl Installer {
 
     fn validate_step(&self) -> Result<(), String> {
         match self.step {
+            0 if !self.internet_connected => Err("Connect to the internet before continuing".into()),
             0 if self.timezone.is_empty() => Err("Select a timezone".into()),
             2 if self.target().is_empty() => Err("Select an installation target".into()),
             2 if self.mode == InstallMode::Manual && (self.esp.is_empty() || self.esp == self.root) => Err("Select different root and EFI partitions".into()),
@@ -424,7 +436,8 @@ impl eframe::App for Installer {
             if self.busy { ui.spinner(); ui.label(RichText::new(if self.installing { "Installing UmbraOS…" } else { "Working…" }).color(MUTED)); }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if self.step == 4 { "Install UmbraOS" } else { "Continue  →" };
-                if ui.add_enabled(!self.busy, egui::Button::new(label).min_size(egui::vec2(150.0, 38.0))).clicked() {
+                let can_continue = !self.busy && (self.step != 0 || self.internet_connected);
+                if ui.add_enabled(can_continue, egui::Button::new(label).min_size(egui::vec2(150.0, 38.0))).clicked() {
                     if self.step == 4 { self.install(); } else if let Err(error) = self.validate_step() { self.result = error; } else {
                         self.result.clear();
                         self.step += 1;
