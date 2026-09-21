@@ -59,6 +59,7 @@
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
+    extraSpecialArgs = { inherit settings isLive; };
     backupFileExtension = "hm-backup";
     overwriteBackup = true;
     verbose = true;

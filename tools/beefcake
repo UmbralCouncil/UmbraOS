@@ -25,6 +25,7 @@ Options:
   --no-proxy              Disable inherited client and SourceForge proxies
   --skip-sourceforge      Build both ISOs without uploading them
   --continue-sourceforge Resume the newest complete local ISO pair, then exit
+  --test                  Boot the x86_64 ISO in the test VM; require approval before upload
   --builders SPEC         Override Nix's remote builder list for this run
   --check-builders        Test both build architectures, then exit (no release)
   --jobs N                Concurrent local Nix jobs (default: auto)
@@ -74,6 +75,7 @@ proxy=""
 proxy_choice="auto"
 skip_sourceforge=0
 continue_sourceforge=0
+test_release=0
 assume_yes=0
 check_builders=0
 builders="${UMBRA_BUILDERS:-}"
@@ -125,6 +127,10 @@ while (( $# )); do
       continue_sourceforge=1
       shift
       ;;
+    --test)
+      test_release=1
+      shift
+      ;;
     --yes)
       assume_yes=1
       shift
@@ -144,6 +150,13 @@ done
 [[ $local_jobs == auto || $local_jobs =~ ^[1-9][0-9]*$ ]] || die "--jobs must be auto or a positive integer"
 [[ $build_cores =~ ^[0-9]+$ ]] || die "--cores must be a non-negative integer"
 command -v python3 >/dev/null || die "required command is missing: python3"
+command -v flock >/dev/null || die "required command is missing: flock"
+
+# Serialize before changing the shared Nix daemon environment. Older versions
+# acquired this lock much later, which allowed concurrent runs to race proxy
+# drop-ins and leave the wrong proxy active.
+exec {release_lock}> "$os_dir/.beefcake.lock"
+flock -n "$release_lock" || die "another BEEFCAKE release is running for $os_dir"
 
 work_dir="$(mktemp -d -t beefcake.XXXXXXXX)"
 runtime_proxy_dropin=""
@@ -192,12 +205,22 @@ elif [[ -n $proxy ]]; then
       command -v systemctl >/dev/null; then
     command -v sudo >/dev/null || die "sudo is required to proxy the system Nix daemon"
     sudo -v || die "sudo authentication is required to proxy the system Nix daemon"
-    runtime_proxy_dropin="/run/systemd/system/nix-daemon.service.d/99-beefcake-proxy-$$.conf"
+    runtime_proxy_dropin="/run/systemd/system/nix-daemon.service.d/99-beefcake-proxy.conf"
     proxy_dropin_source="$work_dir/nix-daemon-proxy.conf"
     python3 "$script_dir/beefcake-support.py" daemon-dropin "$proxy" > "$proxy_dropin_source"
+    # Clean up PID-named files from older interrupted Beefcake versions. With
+    # multiple Environment= assignments, systemd filename ordering could let a
+    # stale file silently override the proxy requested for this run.
+    stale_proxy_dropins=(/run/systemd/system/nix-daemon.service.d/99-beefcake-proxy-*.conf)
+    if (( ${#stale_proxy_dropins[@]} )); then
+      sudo rm -f -- "${stale_proxy_dropins[@]}"
+    fi
     sudo install -D -m 0644 -- "$proxy_dropin_source" "$runtime_proxy_dropin"
     sudo systemctl daemon-reload
     sudo systemctl restart nix-daemon.service
+    daemon_environment="$(sudo systemctl show nix-daemon.service --property=Environment --value)"
+    [[ " $daemon_environment " == *" https_proxy=$proxy_url "* ]] ||
+      die "Nix daemon did not activate the requested proxy $proxy_url"
     # Long ISO builds can outlive sudo's credential timeout. Keep authorization
     # warm so the EXIT trap can reliably restore the daemon without prompting.
     (
@@ -234,13 +257,19 @@ EOF
     rsync_rsh="$proxy_ssh"
   fi
   RSYNC_RSH="$rsync_rsh" rsync \
-    --archive --human-readable --info=progress2 --partial --append-verify \
+    --archive --copy-links --human-readable --info=progress2 --partial --append-verify \
     "$@" "$sf_user@frs.sourceforge.net:$remote_dir/"
 }
 
+release_dir="$os_dir/result-beefcake-release"
+
 if (( continue_sourceforge )); then
   (( ! skip_sourceforge )) || die "--continue-sourceforge conflicts with --skip-sourceforge"
-  candidates=("$os_dir"/UmbraOS-"$os_series"-*-x86_64-linux.iso)
+  (( ! test_release )) || die "--continue-sourceforge conflicts with --test"
+  candidates=(
+    "$release_dir"/UmbraOS-"$os_series"-*-x86_64-linux.iso
+    "$os_dir"/UmbraOS-"$os_series"-*-x86_64-linux.iso
+  )
   (( ${#candidates[@]} > 0 )) || die "no local x86_64 UmbraOS ISO was found"
   mapfile -t candidates < <(printf '%s\n' "${candidates[@]}" | sort -Vr)
   resume_assets=()
@@ -268,6 +297,8 @@ if (( continue_sourceforge )); then
   exit 0
 fi
 
+(( ! test_release || ! skip_sourceforge )) || die "--test conflicts with --skip-sourceforge"
+
 command -v nix >/dev/null || die "required command is missing: nix"
 nix_options=(--max-jobs "$local_jobs" --cores "$build_cores" --option builders-use-substitutes true)
 [[ -z $builders ]] || nix_options+=(--builders "$builders")
@@ -293,11 +324,9 @@ for system in "${systems[@]}"; do
 done
 (( ! check_builders )) || { note "Both architectures can build"; exit 0; }
 
-for command in git gh python3 curl cp sha256sum rsync ssh zstd flock nix-instantiate; do
+for command in git gh python3 curl cp sha256sum rsync ssh zstd nix-instantiate; do
   command -v "$command" >/dev/null || die "required command is missing: $command"
 done
-exec {release_lock}> "$os_dir/.beefcake.lock"
-flock -n "$release_lock" || die "another BEEFCAKE release is running for $os_dir"
 
 if [[ -z "$version" ]]; then
   read -r -p "Studio version (for example 0.1.9): " version
@@ -476,7 +505,9 @@ python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/studio/package.ni
   "$version" "${studio_hashes[x86_64-linux]}" "${studio_hashes[aarch64-linux]}"
 nix-instantiate --parse "$os_dir/modules/studio/package.nix" >/dev/null
 
-# Choose one revision for the pair, without overwriting either architecture.
+# Stage release names as symlinks to the Nix results. This keeps the checkout
+# free of duplicate ISO data while retaining checksums for resumable uploads.
+mkdir -p -- "$release_dir"
 date_stamp="$(date +%Y%m%d)"
 base_name="UmbraOS-$os_series-$date_stamp"
 revision=1
@@ -485,8 +516,10 @@ while :; do
   (( revision == 1 )) || revision_suffix="v$revision"
   collision=0
   for system in "${systems[@]}"; do
-    candidate="$os_dir/$base_name$revision_suffix-$system.iso"
-    if [[ -e $candidate || -e $candidate.sha256 ]]; then collision=1; fi
+    candidate="$release_dir/$base_name$revision_suffix-$system.iso"
+    legacy_candidate="$os_dir/$base_name$revision_suffix-$system.iso"
+    if [[ -e $candidate || -L $candidate || -e $candidate.sha256 ||
+          -e $legacy_candidate || -e $legacy_candidate.sha256 ]]; then collision=1; fi
   done
   (( collision )) || break
   (( revision += 1 ))
@@ -500,16 +533,26 @@ for system in "${systems[@]}"; do
   built_isos=("$iso_result"/iso/*.iso)
   (( ${#built_isos[@]} == 1 )) || die "expected one ISO under $iso_result/iso, found ${#built_isos[@]}"
   iso_name="$base_name$revision_suffix-$system.iso"
-  published_isos[$system]="$os_dir/$iso_name"
-  cp -L -- "${built_isos[0]}" "${published_isos[$system]}"
+  published_isos[$system]="$release_dir/$iso_name"
+  ln -s -- "../${iso_result##*/}/iso/${built_isos[0]##*/}" "${published_isos[$system]}"
   iso_hashes[$system]="$(nix hash file --type sha256 --sri "${published_isos[$system]}")"
   (
-    cd -- "$os_dir"
+    cd -- "$release_dir"
     sha256sum "$iso_name" > "$iso_name.sha256"
   )
   sourceforge_assets+=("${published_isos[$system]}" "${published_isos[$system]}.sha256")
   printf 'ISO (%s): %s\n' "$system" "${published_isos[$system]}"
 done
+
+if (( test_release )); then
+  attach_iso="$os_dir/attach-iso.sh"
+  [[ -x $attach_iso ]] || die "--test requires executable $attach_iso"
+  note "Booting the x86_64 release candidate in the test VM"
+  "$attach_iso" "${published_isos[x86_64-linux]}" || die "x86_64 VM test setup failed; SourceForge upload cancelled"
+  printf '\nInspect the VM before approving publication.\n'
+  read -r -p "Type SHIP to upload both ISOs to SourceForge: " test_confirmation
+  [[ $test_confirmation == SHIP ]] || die "release test was not approved; SourceForge upload cancelled"
+fi
 
 if (( skip_sourceforge )); then
   note "SourceForge upload skipped for both ISOs"

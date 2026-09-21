@@ -1,7 +1,13 @@
-{ lib, pkgs, ... }:
+{ lib, pkgs, settings ? null, ... }:
 let
   wallpaper = ../../assets/home_wallpaper.png;
   applicationButton = ../../assets/darkmode_application_button.svg;
+  allowedKeyboardLayouts = [ "us" "gb" "de" "fr" "es" "it" "br" "pl" "se" "no" "dk" "fi" ];
+  requestedKeyboardLayout = if settings == null then "us" else settings.keyboardLayout or "us";
+  keyboardLayout =
+    if builtins.elem requestedKeyboardLayout allowedKeyboardLayouts
+    then requestedKeyboardLayout
+    else throw "Unsupported UmbraOS keyboard layout: ${requestedKeyboardLayout}";
 in
 {
   home.packages = with pkgs; [ adwaita-icon-theme papirus-icon-theme ];
@@ -23,8 +29,6 @@ in
   xdg.configFile = {
     "niri/config.kdl".text = ''
       // UmbraOS Niri session.
-      include "live.kdl"
-
       spawn-at-startup "${pkgs.swaybg}/bin/swaybg" "-i" "${wallpaper}" "-m" "fill"
       spawn-at-startup "${pkgs.waybar}/bin/waybar"
       spawn-at-startup "${pkgs.mako}/bin/mako"
@@ -44,9 +48,7 @@ in
 
       input {
           keyboard {
-              # Keep a curated installer-friendly set loaded so the constrained
-              # installer backend can switch instantly through Niri IPC.
-              xkb { layout "us,gb,de,fr,es,it,br,pl,se,no,dk,fi"; }
+              xkb { layout "${keyboardLayout}"; }
           }
           touchpad {
               tap
@@ -57,6 +59,10 @@ in
           focus-follows-mouse max-scroll-amount="0%"
           workspace-auto-back-and-forth
       }
+
+      // The live installer may replace this fragment with one validated XKB
+      // layout. Keeping the include after input makes that value authoritative.
+      include "live.kdl"
 
       layout {
           gaps 8

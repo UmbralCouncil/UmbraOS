@@ -134,6 +134,16 @@ class ReleaseTests(unittest.TestCase):
             path = self.root / "bin" / command
             path.write_text(MOCK)
             path.chmod(0o755)
+        attach_iso = self.os / "attach-iso.sh"
+        attach_iso.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, pathlib, sys\n"
+            "root = pathlib.Path(os.environ['BEEFCAKE_TEST_ROOT'])\n"
+            "with (root / 'calls.jsonl').open('a') as f:\n"
+            "    f.write(json.dumps(['attach-iso.sh', sys.argv[1:], None]) + '\\n')\n"
+            "sys.exit(1 if os.environ.get('BEEFCAKE_TEST_FAIL') == 'attach' else 0)\n"
+        )
+        attach_iso.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root / "bin") + ":" + os.environ["PATH"],
                         UMBRA_OS_DIR=str(self.os), UMBRA_STUDIO_DIR=str(self.studio),
                         BEEFCAKE_TEST_ROOT=str(self.root), UMBRA_BUILDERS="",
@@ -142,14 +152,14 @@ class ReleaseTests(unittest.TestCase):
                      "HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "SSL_PROXY", "ALL_PROXY"):
             self.env.pop(name, None)
 
-    def run_release(self, *extra, fail="", check=False):
+    def run_release(self, *extra, fail="", check=False, input_text=None):
         args = [str(TOOLS / "beefcake")]
         if check:
             args += ["--check-builders"]
         else:
             args += ["--version", "0.2.0", "--tag", "studio-v0.2.0", "--no-proxy", "--yes"]
         return subprocess.run(args + list(extra), env=dict(self.env, BEEFCAKE_TEST_FAIL=fail),
-                              text=True, capture_output=True, timeout=30)
+                              input=input_text, text=True, capture_output=True, timeout=30)
 
     def calls(self):
         return [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
@@ -193,11 +203,14 @@ class ReleaseTests(unittest.TestCase):
             archive = self.root / "remote" / f"umbra-studio-{system}.tar.zst"
             expected = "sha256-" + base64.b64encode(hashlib.sha256(archive.read_bytes()).digest()).decode()
             self.assertIn(expected, self.pin.read_text())
-            iso = self.os / f"UmbraOS-26.05-20260910-{system}.iso"
+            iso = self.os / "result-beefcake-release" / f"UmbraOS-26.05-20260910-{system}.iso"
             self.assertTrue(iso.exists())
+            self.assertTrue(iso.is_symlink())
+            self.assertFalse((self.os / iso.name).exists())
             self.assertIn(hashlib.sha256(iso.read_bytes()).hexdigest(), Path(str(iso) + ".sha256").read_text())
         uploads = [args for command, args, _ in self.calls() if command == "rsync"]
         self.assertEqual(len(uploads), 1)
+        self.assertIn("--copy-links", uploads[0])
         self.assertEqual(len([arg for arg in uploads[0] if arg.endswith((".iso", ".sha256"))]), 4)
         for command, args, _ in self.calls():
             if command == "nix" and "build" in args:
@@ -258,7 +271,30 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(self.publications())
         self.assertEqual(existing.read_bytes(), b"previous release")
         for system in SUPPORT.SYSTEMS:
-            self.assertTrue((self.os / f"UmbraOS-26.05-20260910v2-{system}.iso").exists())
+            iso = self.os / "result-beefcake-release" / f"UmbraOS-26.05-20260910v2-{system}.iso"
+            self.assertTrue(iso.exists())
+            self.assertTrue(iso.is_symlink())
+        self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
+
+    def test_vm_test_requires_explicit_approval_before_sourceforge(self):
+        result = self.run_release("--test", input_text="NO\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(command == "attach-iso.sh" for command, _, _ in self.calls()))
+        self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
+
+        (self.root / "calls.jsonl").write_text("")
+        self.env["BEEFCAKE_TEST_EXISTING"] = "1"
+        result = self.run_release("--test", input_text="SHIP\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        attaches = [args for command, args, _ in self.calls() if command == "attach-iso.sh"]
+        self.assertEqual(len(attaches), 1)
+        self.assertIn("x86_64-linux.iso", attaches[0][0])
+        self.assertEqual(len([1 for command, _, _ in self.calls() if command == "rsync"]), 1)
+
+    def test_vm_test_failure_never_uploads_to_sourceforge(self):
+        result = self.run_release("--test", fail="attach", input_text="SHIP\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SourceForge upload cancelled", result.stderr)
         self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
 
     def test_existing_release_uploads_only_missing_studio_assets(self):

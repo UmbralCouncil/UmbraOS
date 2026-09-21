@@ -15,6 +15,7 @@
     mkOutputs = system: let
       baseSettings = {
         timeZone = "America/Chicago";        # Set your timezone
+        keyboardLayout = "us";
         hostName = "umbra";
         account = {
           name = "Umbra";

@@ -24,6 +24,7 @@ const LOG_PATH: &str = "/run/umbra-installer/install.log";
 const BACKEND_SOCKET: &str = "/run/umbra-installer/backend.sock";
 const BACKEND_PID: &str = "/run/umbra-installer/backend.pid";
 const UMBRA_REPOSITORY: &str = "https://github.com/UmbralCouncil/UmbraOS.git";
+const KEYBOARD_LAYOUTS: [&str; 12] = ["us", "gb", "de", "fr", "es", "it", "br", "pl", "se", "no", "dk", "fi"];
 
 static PROXY: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 
@@ -501,10 +502,9 @@ fn time_response() -> BackendResult<String> {
 
 fn set_keyboard(body: &str) -> BackendResult<String> {
     let layout = jq(body, ".layout // empty")?;
-    const ALLOWED: [&str; 12] = ["us", "gb", "de", "fr", "es", "it", "br", "pl", "se", "no", "dk", "fi"];
-    let layout_index = ALLOWED.iter().position(|candidate| *candidate == layout)
-        .ok_or_else(|| BackendError::client("unsupported keyboard layout"))?
-        .to_string();
+    if !KEYBOARD_LAYOUTS.contains(&layout.as_str()) {
+        return Err(BackendError::client("unsupported keyboard layout"));
+    }
     let runtime = Path::new("/run/user/1000");
     let socket = fs::read_dir(runtime)
         .map_err(|error| BackendError::internal(format!("could not inspect Niri runtime: {error}")))?
@@ -516,11 +516,37 @@ fn set_keyboard(body: &str) -> BackendResult<String> {
                 && fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_socket())
         })
         .ok_or_else(|| BackendError::internal("Niri IPC socket was not found"))?;
+
+    let staged = "/run/umbra-installer/niri-live.kdl";
+    let destination = "/home/nixos/.config/niri/live.kdl";
+    const OVERRIDE_MARKER: &str = "// Managed by the UmbraOS installer: keyboard override";
+    let current = fs::read_to_string(destination)
+        .map_err(|error| BackendError::internal(format!("could not read Niri live config: {error}")))?;
+    let original = current.split_once(OVERRIDE_MARKER)
+        .map_or(current.as_str(), |(before, _)| before)
+        .trim_end();
+    let fragment = format!(
+        "{original}\n\n{OVERRIDE_MARKER}\ninput {{\n    keyboard {{\n        xkb {{ layout \"{layout}\"; }}\n    }}\n}}\n"
+    );
+    fs::write(staged, fragment)
+        .map_err(|error| BackendError::internal(format!("could not stage keyboard layout: {error}")))?;
+    fs::set_permissions(staged, fs::Permissions::from_mode(0o644))
+        .map_err(|error| BackendError::internal(format!("could not secure keyboard layout: {error}")))?;
+    let copied = Command::new("runuser")
+        .args(["-u", "nixos", "--", "cp", "--remove-destination", staged, destination])
+        .status()
+        .map_err(|error| BackendError::internal(format!("could not install keyboard layout: {error}")))?;
+    if !copied.success() {
+        return Err(BackendError::internal("could not install the Niri keyboard override"));
+    }
     let status = Command::new("runuser")
         .args(["-u", "nixos", "--"])
         .env("NIRI_SOCKET", &socket)
         .arg(NIRI_BIN)
-        .args(["msg", "action", "switch-layout", &layout_index])
+        .args([
+            "msg", "action", "load-config-file", "--path",
+            "/home/nixos/.config/niri/config.kdl",
+        ])
         .status()
         .map_err(|error| BackendError::internal(format!("could not switch keyboard layout: {error}")))?;
     if !status.success() {
@@ -695,6 +721,7 @@ fn install_system(body: &str) -> BackendResult<String> {
     let username = jq(body, ".username // empty")?;
     let hostname = jq(body, ".hostname // empty")?;
     let timezone = jq(body, ".timezone // empty")?;
+    let keyboard_layout = jq(body, ".keyboard_layout // empty")?;
     let password = jq(body, ".password // empty")?;
     let confirmation = jq(body, ".confirmation // empty")?;
 
@@ -714,6 +741,9 @@ fn install_system(body: &str) -> BackendResult<String> {
     }
     if !validate_timezone(&timezone) {
         return Err(BackendError::client("invalid or unknown time zone"));
+    }
+    if !KEYBOARD_LAYOUTS.contains(&keyboard_layout.as_str()) {
+        return Err(BackendError::client("unsupported keyboard layout"));
     }
     if password.len() < 8 {
         return Err(BackendError::client("password is too short"));
@@ -813,7 +843,7 @@ fn install_system(body: &str) -> BackendResult<String> {
 
     let password_hash = hash_password(&password)?;
     let settings = format!(
-        "{{\n  system = \"@SYSTEM@\";\n  timeZone = \"{timezone}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPasswordFile = \"/etc/umbra-password-hash\";\n  }};\n}}\n"
+        "{{\n  system = \"@SYSTEM@\";\n  timeZone = \"{timezone}\";\n  keyboardLayout = \"{keyboard_layout}\";\n  hostName = \"{hostname}\";\n  account = {{\n    name = \"{username}\";\n    hashedPasswordFile = \"/etc/umbra-password-hash\";\n  }};\n}}\n"
     );
     fs::write("/mnt/etc/umbra-password-hash", format!("{password_hash}\n"))
         .map_err(|error| BackendError::internal(format!("could not write password hash: {error}")))?;

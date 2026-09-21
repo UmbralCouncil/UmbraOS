@@ -410,7 +410,7 @@ impl Installer {
         let expected = self.expected_confirmation();
         if self.confirmation != expected { self.result = "Confirmation text does not match".into(); return; }
         self.busy = true; self.installing = true; self.result.clear();
-        let body = json!({ "mode": if self.mode == InstallMode::Erase { "erase" } else { "manual" }, "disk": self.target_disk, "root": self.root, "esp": self.esp, "username": self.username, "hostname": self.hostname, "timezone": self.timezone, "password": self.password, "confirmation": self.confirmation });
+        let body = json!({ "mode": if self.mode == InstallMode::Erase { "erase" } else { "manual" }, "disk": self.target_disk, "root": self.root, "esp": self.esp, "username": self.username, "hostname": self.hostname, "timezone": self.timezone, "keyboard_layout": self.keyboard_layout, "password": self.password, "confirmation": self.confirmation });
         spawn_rpc::<Value, _>(self.token.clone(), "install", body, self.tx.clone(), |result| Event::Installed(result.map(|value| value.get("message").and_then(Value::as_str).unwrap_or("Installation complete").to_owned())));
     }
 }
