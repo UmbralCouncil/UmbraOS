@@ -115,6 +115,22 @@ fn git(args: &[&str]) -> Result<String, String> {
     checked(program, args, Some(REPOSITORY))
 }
 
+fn git_retry(args: &[&str], cwd: Option<&str>) -> Result<String, String> {
+    let mut last_error = String::new();
+    for attempt in 1..=3 {
+        match checked(GIT, args, cwd) {
+            Ok(output) => return Ok(output),
+            Err(error) => {
+                last_error = error;
+                if attempt < 3 {
+                    thread::sleep(std::time::Duration::from_millis(500 * attempt));
+                }
+            }
+        }
+    }
+    Err(format!("{last_error} (after 3 attempts)"))
+}
+
 #[cfg(test)]
 fn test_boundary(name: &str) {
     if std::env::var("UMBRA_TEST_PAUSE").ok().as_deref() == Some(name) {
@@ -323,8 +339,7 @@ fn set_proxy(request: &Value, shared: &Arc<Mutex<UpdateStatus>>) -> Result<(), S
 
     // Test only the compile-time UmbraOS endpoint. The client cannot use this
     // operation to make the root service connect to an arbitrary destination.
-    if let Err(error) = checked(
-        GIT,
+    if let Err(error) = git_retry(
         &["ls-remote", "--exit-code", REMOTE_URL, "refs/heads/main"],
         None,
     ) {
@@ -333,7 +348,10 @@ fn set_proxy(request: &Value, shared: &Arc<Mutex<UpdateStatus>>) -> Result<(), S
             .map_err(|_| "proxy state is unavailable")? = previous;
         return Err(format!("proxy connectivity verification failed: {error}"));
     }
-    set_status(shared, |s| s.proxy_configured = !value.is_empty());
+    set_status(shared, |s| {
+        s.proxy_configured = !value.is_empty();
+        s.error = None;
+    });
     Ok(())
 }
 
@@ -360,7 +378,7 @@ fn fetch_status(shared: &Arc<Mutex<UpdateStatus>>) -> Result<(), String> {
         s.state = "checking".into();
         s.error = None;
     });
-    git(&["fetch", "--prune", "origin", BRANCH])?;
+    git_retry(&["fetch", "--prune", "origin", BRANCH], Some(REPOSITORY))?;
     let installed = revision("HEAD")?;
     let available = revision("origin/main")?;
     set_status(shared, |s| {
@@ -384,7 +402,7 @@ fn install_update(shared: Arc<Mutex<UpdateStatus>>) -> Result<(), String> {
         s.build_activation_state = "not_started".into();
         s.error = None;
     });
-    git(&["fetch", "--prune", "origin", BRANCH])?;
+    git_retry(&["fetch", "--prune", "origin", BRANCH], Some(REPOSITORY))?;
     let old = revision("HEAD")?;
     let new = revision("origin/main")?;
     if old == new {

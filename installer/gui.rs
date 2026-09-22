@@ -74,6 +74,9 @@ struct TimeResponse {
 #[derive(Clone, Copy, PartialEq)]
 enum InstallMode { Erase, Manual }
 
+#[derive(Clone, Copy)]
+enum UiIcon { Network, Mode, Storage, Identity, Review, Wifi, Clock, Keyboard, Settings }
+
 enum Event {
     Disks(Result<DisksResponse, String>),
     Wifi(Result<WifiResponse, String>),
@@ -150,6 +153,78 @@ where
 }
 
 impl Installer {
+    fn icon(ui: &mut egui::Ui, icon: UiIcon, color: Color32, size: f32) {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+        let painter = ui.painter();
+        let stroke = egui::Stroke::new((size / 11.0).max(1.4), color);
+        let center = rect.center();
+        let x = |value: f32| rect.left() + size * value;
+        let y = |value: f32| rect.top() + size * value;
+        match icon {
+            UiIcon::Network | UiIcon::Wifi => {
+                painter.line_segment([egui::pos2(x(0.20), y(0.42)), center], stroke);
+                painter.line_segment([center, egui::pos2(x(0.80), y(0.42))], stroke);
+                painter.line_segment([center, egui::pos2(x(0.50), y(0.80))], stroke);
+                for point in [egui::pos2(x(0.20), y(0.35)), egui::pos2(x(0.80), y(0.35)), egui::pos2(x(0.50), y(0.80))] {
+                    painter.circle_filled(point, size * 0.105, color);
+                }
+                painter.circle_filled(center, size * 0.12, color);
+            }
+            UiIcon::Clock => {
+                painter.circle_stroke(center, size * 0.36, stroke);
+                painter.line_segment([center, egui::pos2(x(0.50), y(0.27))], stroke);
+                painter.line_segment([center, egui::pos2(x(0.68), y(0.58))], stroke);
+            }
+            UiIcon::Keyboard => {
+                let keyboard = egui::Rect::from_min_max(egui::pos2(x(0.10), y(0.23)), egui::pos2(x(0.90), y(0.77)));
+                painter.rect_stroke(keyboard, size * 0.08, stroke, egui::StrokeKind::Inside);
+                for column in 0..4 {
+                    for row in 0..2 {
+                        painter.circle_filled(egui::pos2(x(0.25 + column as f32 * 0.17), y(0.39 + row as f32 * 0.17)), size * 0.035, color);
+                    }
+                }
+            }
+            UiIcon::Settings => {
+                painter.circle_stroke(center, size * 0.20, stroke);
+                for index in 0..8 {
+                    let angle = index as f32 * std::f32::consts::TAU / 8.0;
+                    let direction = egui::vec2(angle.cos(), angle.sin());
+                    painter.line_segment([center + direction * size * 0.29, center + direction * size * 0.40], stroke);
+                }
+            }
+            UiIcon::Mode => {
+                painter.circle_stroke(egui::pos2(x(0.32), y(0.50)), size * 0.19, stroke);
+                painter.circle_stroke(egui::pos2(x(0.68), y(0.50)), size * 0.19, stroke);
+                painter.circle_filled(egui::pos2(x(0.32), y(0.50)), size * 0.08, color);
+            }
+            UiIcon::Storage => {
+                let disk = egui::Rect::from_min_max(egui::pos2(x(0.17), y(0.17)), egui::pos2(x(0.83), y(0.83)));
+                painter.rect_stroke(disk, size * 0.09, stroke, egui::StrokeKind::Inside);
+                painter.line_segment([egui::pos2(x(0.27), y(0.61)), egui::pos2(x(0.73), y(0.61))], stroke);
+                painter.circle_filled(egui::pos2(x(0.69), y(0.73)), size * 0.045, color);
+            }
+            UiIcon::Identity => {
+                painter.circle_stroke(egui::pos2(x(0.50), y(0.32)), size * 0.17, stroke);
+                painter.line_segment([egui::pos2(x(0.25), y(0.80)), egui::pos2(x(0.30), y(0.66))], stroke);
+                painter.line_segment([egui::pos2(x(0.30), y(0.66)), egui::pos2(x(0.70), y(0.66))], stroke);
+                painter.line_segment([egui::pos2(x(0.70), y(0.66)), egui::pos2(x(0.75), y(0.80))], stroke);
+            }
+            UiIcon::Review => {
+                let page = egui::Rect::from_min_max(egui::pos2(x(0.22), y(0.12)), egui::pos2(x(0.78), y(0.88)));
+                painter.rect_stroke(page, size * 0.05, stroke, egui::StrokeKind::Inside);
+                painter.line_segment([egui::pos2(x(0.33), y(0.53)), egui::pos2(x(0.45), y(0.65))], stroke);
+                painter.line_segment([egui::pos2(x(0.45), y(0.65)), egui::pos2(x(0.68), y(0.37))], stroke);
+            }
+        }
+    }
+
+    fn title(ui: &mut egui::Ui, icon: UiIcon, text: &str) {
+        ui.horizontal(|ui| {
+            Self::icon(ui, icon, BLUE, 22.0);
+            ui.label(RichText::new(text).size(17.0).strong());
+        });
+    }
+
     fn new(token: String, context: egui::Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let repaint = context.clone();
@@ -219,10 +294,14 @@ impl Installer {
         }
     }
 
-    fn heading(ui: &mut egui::Ui, kicker: &str, title: &str) {
-        ui.label(RichText::new(kicker).strong().size(11.0).color(BLUE));
-        ui.add_space(3.0);
-        ui.label(RichText::new(title).size(28.0).strong().color(Color32::WHITE));
+    fn heading(ui: &mut egui::Ui, icon: UiIcon, kicker: &str, title: &str) {
+        ui.horizontal(|ui| {
+            egui::Frame::new().fill(Color32::from_rgb(31, 45, 100)).corner_radius(10).inner_margin(10).show(ui, |ui| Self::icon(ui, icon, ACCENT, 28.0));
+            ui.vertical(|ui| {
+                ui.label(RichText::new(kicker).strong().size(11.0).color(BLUE));
+                ui.label(RichText::new(title).size(28.0).strong().color(Color32::WHITE));
+            });
+        });
         ui.add_space(18.0);
     }
 
@@ -237,9 +316,9 @@ impl Installer {
     }
 
     fn step_rail(&self, ui: &mut egui::Ui) {
-        const STEPS: [&str; 5] = ["Connect", "Install mode", "Storage", "Identity", "Review"];
+        const STEPS: [(UiIcon, &str); 5] = [(UiIcon::Network, "Connect"), (UiIcon::Mode, "Install mode"), (UiIcon::Storage, "Storage"), (UiIcon::Identity, "Identity"), (UiIcon::Review, "Review")];
         ui.horizontal(|ui| {
-            for (index, label) in STEPS.iter().enumerate() {
+            for (index, (icon, label)) in STEPS.iter().enumerate() {
                 let reached = index <= self.step;
                 let active = index == self.step;
                 let color = if reached { ACCENT } else { MUTED };
@@ -249,17 +328,17 @@ impl Installer {
                     .stroke(egui::Stroke::new(1.0, if reached { ACCENT } else { BORDER }))
                     .corner_radius(egui::CornerRadius::same(20))
                     .inner_margin(egui::Margin::symmetric(10, 5))
-                    .show(ui, |ui| { ui.label(RichText::new(format!("{marker}  {label}")).color(color).strong()); });
+                    .show(ui, |ui| { ui.horizontal(|ui| { Self::icon(ui, *icon, color, 15.0); ui.label(RichText::new(format!("{marker}  {label}")).color(color).strong()); }); });
                 if index < 4 { ui.label(RichText::new("—").color(BORDER)); }
             }
         });
     }
 
     fn setup(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "NETWORK & TIME", "Get the live system ready.");
+        Self::heading(ui, UiIcon::Network, "NETWORK & TIME", "Get the live system ready.");
         ui.columns(2, |columns| {
             Self::card(&mut columns[0], |ui| {
-                ui.horizontal(|ui| { ui.label(RichText::new("Wi-Fi").size(17.0).strong()); ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { if ui.button("↻  Scan").clicked() { spawn_rpc::<WifiResponse, _>(self.token.clone(), "wifi", Value::Null, self.tx.clone(), Event::Wifi); } }); });
+                ui.horizontal(|ui| { Self::title(ui, UiIcon::Wifi, "Wi-Fi"); ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { if ui.button("↻  Scan").clicked() { spawn_rpc::<WifiResponse, _>(self.token.clone(), "wifi", Value::Null, self.tx.clone(), Event::Wifi); } }); });
                 ui.add_space(10.0);
                 egui::ComboBox::from_id_salt("wifi").selected_text(if self.wifi_ssid.is_empty() { "Select a network" } else { &self.wifi_ssid }).show_ui(ui, |ui| {
                     for network in &self.networks { ui.selectable_value(&mut self.wifi_ssid, network.ssid.clone(), format!("{}  {}%  {}", network.ssid, network.signal, if network.security.is_empty() { "Open" } else { &network.security })); }
@@ -273,7 +352,7 @@ impl Installer {
                 ui.add_space(8.0); ui.label(RichText::new(&self.wifi_status).small().color(MUTED));
             });
             Self::card(&mut columns[1], |ui| {
-                ui.label(RichText::new("Date & time").size(17.0).strong()); ui.add_space(10.0);
+                Self::title(ui, UiIcon::Clock, "Date & time"); ui.add_space(10.0);
                 let timezone_search_label = ui.label("Find a time zone");
                 ui.add(egui::TextEdit::singleline(&mut self.time_filter)).labelled_by(timezone_search_label.id);
                 let search = self.time_filter.to_lowercase();
@@ -286,7 +365,7 @@ impl Installer {
         });
         ui.add_space(14.0);
         Self::card(ui, |ui| {
-            ui.label(RichText::new("Keyboard layout").size(17.0).strong());
+            Self::title(ui, UiIcon::Keyboard, "Keyboard layout");
             ui.label(RichText::new("Changes the active layout immediately for the live installer session.").small().color(MUTED));
             ui.add_space(8.0);
             let previous = self.keyboard_layout.clone();
@@ -303,7 +382,7 @@ impl Installer {
         });
         ui.add_space(14.0);
         Self::card(ui, |ui| {
-            ui.toggle_value(&mut self.advanced_networking, "Advanced networking");
+            ui.horizontal(|ui| { Self::icon(ui, UiIcon::Settings, BLUE, 22.0); ui.toggle_value(&mut self.advanced_networking, "Advanced networking"); });
             if self.advanced_networking {
                 ui.add_space(8.0);
                 ui.label("Optional HTTP/HTTPS proxy");
@@ -329,20 +408,20 @@ impl Installer {
     }
 
     fn mode(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "INSTALLATION MODE", "Choose how UmbraOS uses your disk.");
+        Self::heading(ui, UiIcon::Mode, "INSTALLATION MODE", "Choose how UmbraOS uses your disk.");
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.mode, InstallMode::Erase, "Erase an entire disk");
             ui.selectable_value(&mut self.mode, InstallMode::Manual, "Manual / dual boot");
         });
         ui.add_space(16.0);
         Self::card(ui, |ui| match self.mode {
-            InstallMode::Erase => { ui.strong("Use an entire disk"); ui.label("The selected disk is erased and receives a 1 GiB EFI partition plus a Btrfs root."); }
-            InstallMode::Manual => { ui.strong("Reuse prepared partitions"); ui.label("Assign a root partition and an existing FAT32 EFI partition. The installer never resizes partitions."); }
+            InstallMode::Erase => { Self::title(ui, UiIcon::Storage, "Use an entire disk"); ui.label("The selected disk is erased and receives a 1 GiB EFI partition plus a Btrfs root."); }
+            InstallMode::Manual => { Self::title(ui, UiIcon::Storage, "Reuse prepared partitions"); ui.label("Assign a root partition and an existing FAT32 EFI partition. The installer never resizes partitions."); }
         });
     }
 
     fn storage(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "STORAGE", "Set up the installation target.");
+        Self::heading(ui, UiIcon::Storage, "STORAGE", "Set up the installation target.");
         if ui.button("Refresh devices").clicked() { self.refresh_disks(); }
         let all = Self::flatten(&self.disks);
         if self.mode == InstallMode::Erase {
@@ -364,7 +443,7 @@ impl Installer {
     }
 
     fn identity(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "IDENTITY", "Make this system yours.");
+        Self::heading(ui, UiIcon::Identity, "IDENTITY", "Make this system yours.");
         egui::Grid::new("identity").num_columns(2).spacing([20.0, 10.0]).show(ui, |ui| {
             let label = ui.label("Username"); ui.add(egui::TextEdit::singleline(&mut self.username)).labelled_by(label.id); ui.end_row();
             let label = ui.label("Hostname"); ui.add(egui::TextEdit::singleline(&mut self.hostname)).labelled_by(label.id); ui.end_row();
@@ -374,7 +453,7 @@ impl Installer {
     }
 
     fn review(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "REVIEW", "This is the point of no return.");
+        Self::heading(ui, UiIcon::Review, "REVIEW", "This is the point of no return.");
         egui::Grid::new("review").striped(true).show(ui, |ui| {
             for (label, value) in [("Mode", if self.mode == InstallMode::Erase { "Erase whole disk" } else { "Manual / dual boot" }), ("Target", self.target()), ("User", &self.username), ("Hostname", &self.hostname), ("Time zone", &self.timezone)] { ui.label(label); ui.strong(value); ui.end_row(); }
         });

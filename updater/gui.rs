@@ -35,43 +35,49 @@ struct Reply {
     error: Option<String>,
 }
 
-enum Event {
-    Status(Result<UpdateStatus, String>),
-    Checked(Result<UpdateStatus, String>),
-    Installed(Result<UpdateStatus, String>),
-    Proxy(Result<UpdateStatus, String>),
+struct RpcError {
+    message: String,
+    status: Option<UpdateStatus>,
 }
 
-fn rpc(action: &'static str, extra: Value) -> Result<UpdateStatus, String> {
+enum Event {
+    Status(Result<UpdateStatus, RpcError>),
+    Checked(Result<UpdateStatus, RpcError>),
+    Installed(Result<UpdateStatus, RpcError>),
+    Proxy(Result<UpdateStatus, RpcError>),
+}
+
+fn rpc(action: &'static str, extra: Value) -> Result<UpdateStatus, RpcError> {
     let mut request = json!({"action": action});
     if let (Some(target), Some(fields)) = (request.as_object_mut(), extra.as_object()) {
         target.extend(fields.clone());
     }
     let mut stream = UnixStream::connect(SOCKET)
-        .map_err(|error| format!("Update service unavailable: {error}"))?;
+        .map_err(|error| RpcError { message: format!("Update service unavailable: {error}"), status: None })?;
     stream
         .write_all(request.to_string().as_bytes())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| RpcError { message: e.to_string(), status: None })?;
     stream
         .shutdown(std::net::Shutdown::Write)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| RpcError { message: e.to_string(), status: None })?;
     let mut response = String::new();
     stream
         .read_to_string(&mut response)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| RpcError { message: e.to_string(), status: None })?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
         .unwrap_or(&response);
-    let reply: Reply = serde_json::from_str(body).map_err(|_| body.trim().to_owned())?;
+    let reply: Reply = serde_json::from_str(body).map_err(|_| RpcError { message: body.trim().to_owned(), status: None })?;
     if reply.ok {
         reply
             .status
-            .ok_or_else(|| "Backend returned no update status".into())
+            .ok_or_else(|| RpcError { message: "Backend returned no update status".into(), status: None })
     } else {
-        Err(reply
-            .error
-            .unwrap_or_else(|| "Update request failed".into()))
+        Err(RpcError {
+            message: reply.error.unwrap_or_else(|| "Update request failed".into()),
+            status: reply.status,
+        })
     }
 }
 
@@ -79,7 +85,7 @@ fn spawn_rpc(
     action: &'static str,
     extra: Value,
     tx: Sender<Event>,
-    wrap: fn(Result<UpdateStatus, String>) -> Event,
+    wrap: fn(Result<UpdateStatus, RpcError>) -> Event,
 ) {
     thread::spawn(move || {
         let _ = tx.send(wrap(rpc(action, extra)));
@@ -146,7 +152,10 @@ impl Updater {
                     self.status = status;
                     self.message = success.into();
                 }
-                Err(error) => self.message = error,
+                Err(error) => {
+                    if let Some(status) = error.status { self.status = status; }
+                    self.message = error.message;
+                }
             }
         }
     }
@@ -155,7 +164,7 @@ impl Updater {
         &mut self,
         action: &'static str,
         extra: Value,
-        wrap: fn(Result<UpdateStatus, String>) -> Event,
+        wrap: fn(Result<UpdateStatus, RpcError>) -> Event,
     ) {
         self.busy = true;
         self.message.clear();
