@@ -52,6 +52,8 @@ in
     xwayland-satellite
   ];
 
+  fonts.packages = [ pkgs.nerd-fonts.jetbrains-mono ];
+
   security.polkit.enable = true;
   services.gnome.gnome-keyring.enable = true;
   services.gnome.at-spi2-core.enable = true;

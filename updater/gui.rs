@@ -216,8 +216,14 @@ impl eframe::App for Updater {
                 ui.label(RichText::new("Temporary proxy").size(17.0).strong());
                 ui.label(RichText::new("Used only by this update service until it restarts. The value is not persisted.").small().color(MUTED));
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_enabled(!self.busy, egui::TextEdit::singleline(&mut self.proxy_url).hint_text("http://host:port").desired_width(360.0));
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    ui.add_sized(
+                        [ui.available_width(), 28.0],
+                        egui::TextEdit::singleline(&mut self.proxy_url).hint_text("http://host:port"),
+                    );
+                });
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
                     if ui.add_enabled(!self.busy, egui::Button::new("Apply and test")).clicked() {
                         let url = self.proxy_url.trim().to_owned();
                         self.proxy_url = url.clone();
@@ -228,6 +234,7 @@ impl eframe::App for Updater {
                         self.request("SET_UPDATE_PROXY", json!({"url":""}), Event::Proxy);
                     }
                 });
+                ui.add_space(4.0);
                 ui.label(RichText::new(if self.status.proxy_configured { "Temporary proxy enabled" } else { "Direct connection" }).small().color(if self.status.proxy_configured { ACCENT } else { MUTED }));
             });
 

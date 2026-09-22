@@ -165,7 +165,7 @@ in
     "niri/live.kdl".text = "";
 
     "kitty/kitty.conf".text = ''
-      font_family monospace
+      font_family JetBrainsMono Nerd Font
       font_size 11.0
       background #040718
       foreground #f2f4ff
