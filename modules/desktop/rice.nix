@@ -5,16 +5,16 @@
   # Keep the artwork in the system closure so boot and desktop components can
   # refer to the same immutable files.
   environment.etc = {
-    "umbra/artwork/logo.png".source = ../../assets/logo.png;
-    "umbra/artwork/splash.png".source = ../../assets/splash.png;
-    "umbra/artwork/brandmark.png".source = ../../assets/umbraos_logo.png;
-    "umbra/artwork/wallpaper.png".source = ../../assets/home_wallpaper.png;
-    "umbra/artwork/palette.png".source = ../../assets/color_palette.png;
-    "umbra/artwork/application-button-dark.svg".source =
+    "umbra-runtime/artwork/logo.png".source = ../../assets/logo.png;
+    "umbra-runtime/artwork/splash.png".source = ../../assets/splash.png;
+    "umbra-runtime/artwork/brandmark.png".source = ../../assets/umbraos_logo.png;
+    "umbra-runtime/artwork/wallpaper.png".source = ../../assets/home_wallpaper.png;
+    "umbra-runtime/artwork/palette.png".source = ../../assets/color_palette.png;
+    "umbra-runtime/artwork/application-button-dark.svg".source =
       ../../assets/darkmode_application_button.svg;
-    "umbra/artwork/application-button-light.svg".source =
+    "umbra-runtime/artwork/application-button-light.svg".source =
       ../../assets/lightmode_application_button.svg;
-    "umbra/artwork/install.png".source = ../../assets/install.png;
+    "umbra-runtime/artwork/install.png".source = ../../assets/install.png;
   };
 
   # Limine is used by installed UmbraOS systems. The ISO has its own boot path

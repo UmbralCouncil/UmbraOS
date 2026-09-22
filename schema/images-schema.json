@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://umbraos.dev/schema/images-schema.json",
-  "$comment": "Canonical source of the /etc/umbra/images.json contract. Lives in UmbraOS at schema/images-schema.json and is vendored verbatim into Umbra Studio at crates/umbra-core/schema/images-schema.json. Both copies are byte-identical; edit this file upstream in UmbraOS only and re-vendor. Both sides validate against it in CI.",
+  "$comment": "Canonical source of the /etc/umbra-runtime/images.json contract. Lives in UmbraOS at schema/images-schema.json and is vendored verbatim into Umbra Studio at crates/umbra-core/schema/images-schema.json. Both copies are byte-identical; edit this file upstream in UmbraOS only and re-vendor. Both sides validate against it in CI.",
   "title": "Umbra lab image catalog",
   "type": "object",
   "additionalProperties": false,

@@ -152,7 +152,7 @@ in
       type = types.attrs;
       readOnly = true;
       internal = true;
-      description = "Structured form of images.json (introspection; serialized to /etc/umbra/images.json).";
+      description = "Structured form of images.json (introspection; serialized to /etc/umbra-runtime/images.json).";
     };
   };
 
@@ -189,7 +189,7 @@ in
 
     # --- Catalog export: the sole Nix -> Studio interface -----------------
     # Studio reads this; it must never parse Nix.
-    environment.etc."umbra/images.json".source = imagesJson;
+    environment.etc."umbra-runtime/images.json".source = imagesJson;
 
     # Provisioned images are dropped here by the user at runtime.
     systemd.tmpfiles.rules = [ "d /var/lib/umbra/images 0755 root root - -" ];

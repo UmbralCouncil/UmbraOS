@@ -61,7 +61,7 @@
 
       # --- Contract check: the emitted catalog must match the vendored schema ---
       # schema/images-schema.json is the single source of truth for the
-      # /etc/umbra/images.json contract (Umbra Studio vendors a byte-identical
+      # /etc/umbra-runtime/images.json contract (Umbra Studio vendors a byte-identical
       # copy). This validates the *value* of the catalog rather than the built
       # file, so it runs without realising the bundled image FODs — which means it
       # stays green while `sha256 = lib.fakeHash` (the release gate below is what
@@ -99,12 +99,12 @@
         # builder through the multi-image framework a second time.
         iso = inputs.self.nixosConfigurations."umbra-live-${system}".config.system.build.isoImage;
 
-        # The emitted /etc/umbra/images.json, realisable on its own so Umbra Studio
+        # The emitted /etc/umbra-runtime/images.json, realisable on its own so Umbra Studio
         # can consume it as a test fixture without building or booting a system.
         # This is the exact derivation the installed system ships, so the fixture
         # is byte-identical to the on-disk file.
         images-json =
-          inputs.self.nixosConfigurations."umbra-live-${system}".config.environment.etc."umbra/images.json".source;
+          inputs.self.nixosConfigurations."umbra-live-${system}".config.environment.etc."umbra-runtime/images.json".source;
 
         # Public, reviewable Umbra Store catalog. Studio fetches this output from
         # the Git repository and caches the last valid copy for offline use.

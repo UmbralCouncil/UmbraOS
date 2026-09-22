@@ -1,6 +1,6 @@
 # Make sure to add this to your bookmarks: https://search.nixos.org/options
 # This is where common options are set so you don't have to repeat yourself across files
-{ settings, inputs, system, lib, isLive ? false, ... }: {
+{ settings, inputs, system, lib, config, isLive ? false, ... }: {
   imports = [
     ./modules/branding.nix
     ./modules/desktop/rice.nix
@@ -71,6 +71,18 @@
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.settings.trusted-users = [ "@wheel" ];
+
+  # /etc/umbra is the mutable, updater-managed Git checkout. Nix-generated
+  # /etc entries there appear as untracked files and correctly trip the
+  # updater's dirty-check, so keep all runtime material outside that namespace.
+  assertions = [
+    {
+      assertion = lib.all
+        (name: !(lib.hasPrefix "umbra/" name))
+        (builtins.attrNames config.environment.etc);
+      message = "environment.etc must not write inside the /etc/umbra Git checkout";
+    }
+  ];
 
   hardware.graphics.enable = true;
 
