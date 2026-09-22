@@ -130,8 +130,16 @@ fn test_boundary(name: &str) {
 fn test_boundary(_name: &str) {}
 
 fn allowed_checkout_change(line: &str) -> bool {
+    // Porcelain normally reports `XY path`, but tolerate the leading slash
+    // form surfaced by installed-system tooling. Normalize only that one
+    // presentation difference; the resulting path must still exactly match a
+    // machine-local file and can never be an arbitrary suffix match.
+    let Some(path) = line.get(2..).map(str::trim_start) else {
+        return false;
+    };
+    let path = path.strip_prefix('/').unwrap_or(path);
     matches!(
-        line.get(3..).unwrap_or(""),
+        path,
         "profile/default/hardware.nix" | "installer-settings.nix"
     )
 }
@@ -552,8 +560,12 @@ mod tests {
     #[test]
     fn checkout_policy_allows_only_machine_local_files() {
         assert!(allowed_checkout_change(" M profile/default/hardware.nix"));
+        assert!(allowed_checkout_change("M  profile/default/hardware.nix"));
+        assert!(allowed_checkout_change("M /profile/default/hardware.nix"));
         assert!(allowed_checkout_change("?? installer-settings.nix"));
         assert!(!allowed_checkout_change(" M flake.nix"));
+        assert!(!allowed_checkout_change(" M other/profile/default/hardware.nix"));
+        assert!(!allowed_checkout_change(" M ../profile/default/hardware.nix"));
         assert!(!allowed_checkout_change("?? arbitrary-command"));
         assert!(!allowed_checkout_change(""));
     }
