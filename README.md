@@ -2,39 +2,54 @@
   <img src="assets/umbraos_logo.png" width="300" alt="UmbraOS Logo">
 </p>
 
-> Nix-based OS built for cybersecurity learners and enthusiasts alike.
+> A reproducible security-training platform built around NixOS.
 
-UmbraOS is a Nix-based operating system built to make cybersecurity education reproducible, approachable, and hands-on.
+Umbra combines an open-source host operating system, a native learning
+application, and an open course format to make hands-on security training
+reproducible, approachable, and safe.
 
-Rather than shipping hundreds of tools and expecting users to figure everything out themselves, UmbraOS focuses on guided learning through reproducible lab environments and optional AI-assisted instruction.
+## The Umbra Platform
 
-## Goals
+### UmbraOS
 
-- Reproducible cybersecurity labs using Nix
-- Safe experimentation through sandboxing
-- Optional AI assistance (Local GGUF / Ollama / GroqCloud / None)
-- Beginner-friendly without sacrificing flexibility
-- Privacy-first (no mandatory telemetry)
+UmbraOS is the open-source NixOS host: a modular, reproducible alternative to
+Kali without traditional dependency hell. Its system, desktop, installer, lab
+infrastructure, and updates are expressed declaratively through Nix flakes.
 
-## Current Foundation
+### Umbra Studio
 
-- [x] Bootable Hyprland live ISO
-- [x] Custom Nix flake installer
-- [x] Whole-disk and manual/dual-boot installation paths
-- [x] MicroVM host and isolated-guest foundations
-- [x] Declarative, schema-validated lab image catalog
+Umbra Studio is the native application where learners install courses, launch
+labs, follow tasks, use an isolated terminal, and submit answers.
 
-## Planned Features
+Every lab runs as its own headless QEMU/KVM microVM. Learners can have root
+inside the guest without gaining access to the UmbraOS host, its files, or its
+LAN.
 
-- [ ] Guided cybersecurity labs
-- [ ] AI teaching assistant
-- [ ] Lab authoring toolkit
-- [ ] Community-contributed labs
+### Umbra Course SDK
 
-## Status
+The open-source Umbra Course SDK lets third parties create and distribute
+courses. A course is a Nix flake containing its manifest, lessons, tasks,
+graders, fixtures, and microVM configuration. Studio installs that flake as a
+self-contained training module.
 
-v0.1 foundation preview. Use disposable hardware or virtual machines while the
-installer continues hardware testing.
+## Open-core Model
+
+- **UmbraOS** and the **Umbra Course SDK** are open source.
+- **Umbra Learn/Education** remains free.
+- **Umbra Studio Professional** is a $120 perpetual license.
+- **Umbra Enterprise** is $500 annually, plus $50 per additional user.
+
+## UmbraOS Today
+
+- Bootable Niri live images for x86_64 and ARM64
+- Native graphical installer with whole-disk and manual/dual-boot paths
+- Local, Git-backed system updates with normal NixOS generations and rollback
+- KVM/QEMU microVM host and isolated-guest infrastructure
+- Declarative, schema-validated lab image and course registries
+- Privacy-first operation with no mandatory telemetry
+
+UmbraOS is under active development. Test installation changes on disposable
+hardware or virtual machines before deploying them to important systems.
 
 ## ARM64 builds
 
@@ -78,9 +93,5 @@ Each attempt is retained beneath `/var/lib/umbra/migrations`; a successful
 switch also points `/etc/nixos/umbra` at the active migration snapshot.
 
 ## Join the Family
+
 ![Discord](https://discord.com/api/guilds/1527521057483784264/widget.png?style=banner2)
-
-## Contribute to the Cause
-https://cash.app/$taptsecd
-
-I'm kinda going through some shit right now and being thrown in a group home but its whatever
