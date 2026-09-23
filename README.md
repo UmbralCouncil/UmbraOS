@@ -98,3 +98,7 @@ switch also points `/etc/nixos/umbra` at the active migration snapshot.
   <a href="https://discord.gg/pKAbJ6EtrX"><img src="assets/lightmode_application_button.svg" width="32" alt="Umbra logo" align="middle"></a>
   <a href="https://discord.gg/pKAbJ6EtrX"><strong>Join the Umbra Discord</strong></a>
 </p>
+
+## Support the Project
+
+[Support The Umbra Project on Ko-fi](https://ko-fi.com/theumbraproject)
