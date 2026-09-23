@@ -95,6 +95,6 @@ switch also points `/etc/nixos/umbra` at the active migration snapshot.
 ## Join the Family
 
 <p>
-  <a href="https://discord.gg/pKAbJ6EtrX"><img src="assets/darkmode_application_button.svg" width="32" alt="Umbra logo" align="middle"></a>
+  <a href="https://discord.gg/pKAbJ6EtrX"><img src="assets/lightmode_application_button.svg" width="32" alt="Umbra logo" align="middle"></a>
   <a href="https://discord.gg/pKAbJ6EtrX"><strong>Join the Umbra Discord</strong></a>
 </p>
