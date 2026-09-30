@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -230,22 +231,52 @@ class ReleaseTests(unittest.TestCase):
 
     def test_update_commits_and_syncs_all_three_repositories(self):
         self.env["BEEFCAKE_TEST_GIT_DIRTY"] = "1"
-        result = self.run_release("--update", "--skip-sourceforge")
+        result = self.run_release("--update")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         git_calls = [args for command, args, _ in self.calls() if command == "git"]
         commits = [args for args in git_calls if "commit" in args]
         pulls = [args for args in git_calls if "pull" in args]
         pushes = [args for args in git_calls if "push" in args]
-        self.assertEqual(len(commits), 5)
-        self.assertEqual(len(pulls), 5)
-        self.assertEqual(len(pushes), 5)
+        self.assertEqual(len(commits), 3)
+        self.assertEqual(len(pulls), 3)
+        self.assertEqual(len(pushes), 3)
         self.assertTrue(any(args[-2:] == ["-m", "Pin Umbra Studio 0.2.0 release"]
                             and args[:2] == ["-C", str(self.os)] for args in commits))
         self.assertIn('version = "0.2.0";', self.pin.read_text())
         self.assertNotIn("lib.fakeHash", self.pin.read_text())
+        self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
+        self.assertFalse(any(command == "nix" and any(arg.endswith(".iso") for arg in args)
+                             for command, args, _ in self.calls()))
         for repo in (self.api, self.studio, self.os):
             self.assertTrue(any(args[:2] == ["-C", str(repo)] and "push" in args
                                 for args in git_calls))
+
+    def test_no_emu_builds_only_x86_64_in_regular_run(self):
+        result = self.run_release("--no-emu")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertFalse(any("aarch64-linux" in " ".join(args)
+                             for _, args, _ in calls))
+        self.assertEqual([system for command, _, system in calls if command == "nix" and system],
+                         ["x86_64-linux"])
+        uploads = [args for command, args, _ in calls if command == "rsync"]
+        self.assertEqual(len([arg for arg in uploads[0] if arg.endswith((".iso", ".sha256"))]), 2)
+        self.assertTrue((self.os / "result-beefcake-release" /
+                         "UmbraOS-26.05-20260910-x86_64-linux.iso").exists())
+
+    def test_no_emu_update_preserves_arm_pin(self):
+        before = self.pin.read_text()
+        arm_block = re.search(r'aarch64-linux = \{.*?\n\s*\};', before, re.DOTALL).group(0)
+        result = self.run_release("--update", "--no-emu")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        after = self.pin.read_text()
+        self.assertIn(arm_block, after)
+        x86_block = re.search(r'x86_64-linux = \{.*?\n\s*\};', after, re.DOTALL).group(0)
+        self.assertIn('version = "0.2.0";', x86_block)
+        self.assertFalse(any("aarch64-linux" in " ".join(args)
+                             for _, args, _ in self.calls()))
+        self.assertFalse(any(command == "nix" and any(arg.endswith(".iso") for arg in args)
+                             for command, args, _ in self.calls()))
 
     def test_builder_check_has_no_release_side_effects(self):
         before = self.pin.read_bytes()
@@ -370,7 +401,10 @@ class ReleaseTests(unittest.TestCase):
         before = self.pin.read_bytes()
         digest = "sha256-" + base64.b64encode(bytes(32)).decode()
         with self.assertRaisesRegex(ValueError, "aarch64-linux"):
-            SUPPORT.pin(self.pin, "0.2.0", [digest, digest])
+            SUPPORT.pin(self.pin, "0.2.0", {
+                "x86_64-linux": digest,
+                "aarch64-linux": digest,
+            })
         self.assertEqual(before, self.pin.read_bytes())
 
     def test_audit_rejects_source_material(self):

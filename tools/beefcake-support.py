@@ -95,29 +95,30 @@ def pin(path, version, hashes):
     path = Path(path)
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("invalid Studio version")
+    if not hashes:
+        raise ValueError("at least one system/hash pair is required")
+    if any(system not in SYSTEMS for system in hashes):
+        raise ValueError("unknown Studio system")
     text = path.read_text()
-    text, count = re.subn(
-        r'(?m)^(\s*version = ")\d+\.\d+\.\d+(";\s*)$',
-        lambda match: match[1] + version + match[2], text,
-    )
-    if count != 1:
-        raise ValueError("expected exactly one Studio version")
-    for system, digest in zip(SYSTEMS, hashes, strict=True):
+    for system, digest in hashes.items():
         if not re.fullmatch(r"sha256-[A-Za-z0-9+/]{43}=", digest):
             raise ValueError(f"invalid SRI hash for {system}")
         if len(base64.b64decode(digest[7:], validate=True)) != 32:
             raise ValueError(f"invalid SHA-256 length for {system}")
         pattern = (
-            r"(" + re.escape(system) + r"\s*=\s*\{\s*hash\s*=\s*)"
+            r"(" + re.escape(system) + r"\s*=\s*\{\s*version\s*=\s*)"
+            r'"\d+\.\d+\.\d+"(\s*;\s*hash\s*=\s*)'
             r'(?:"sha256-[A-Za-z0-9+/=]+"|lib\.fakeHash)(\s*;\s*\})'
         )
         text, count = re.subn(
-            pattern, lambda match: match[1] + '"' + digest + '"' + match[2], text,
+            pattern,
+            lambda match: (match[1] + '"' + version + '"' + match[2]
+                           + '"' + digest + '"' + match[3]),
+            text,
         )
         if count != 1:
-            raise ValueError(f"expected exactly one hash block for {system}")
-    # Validate both replacements before replacing the file, so an absent ARM
-    # block cannot leave a new version paired with an old architecture hash.
+            raise ValueError(f"expected exactly one release block for {system}")
+    # Validate every requested replacement before replacing the file.
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
@@ -143,13 +144,18 @@ def main():
     pin_parser = commands.add_parser("pin")
     pin_parser.add_argument("path", type=Path)
     pin_parser.add_argument("version")
-    pin_parser.add_argument("hashes", nargs=2)
+    pin_parser.add_argument("release", nargs="+", metavar="SYSTEM_OR_HASH")
     args = parser.parse_args()
     try:
         if args.command == "audit":
             audit(args.archive, args.system)
         elif args.command == "pin":
-            pin(args.path, args.version, args.hashes)
+            if len(args.release) % 2:
+                raise ValueError("pin requires SYSTEM HASH pairs")
+            hashes = dict(zip(args.release[::2], args.release[1::2], strict=True))
+            if len(hashes) != len(args.release) // 2:
+                raise ValueError("duplicate Studio system")
+            pin(args.path, args.version, hashes)
         elif args.command == "proxy-endpoint":
             print(proxy_endpoint(args.value))
         else:

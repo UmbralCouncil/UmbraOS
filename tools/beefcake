@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BEEFCAKE: build and publish Studio and UmbraOS for x86_64 and ARM64.
+# BEEFCAKE: build and publish Studio and UmbraOS releases.
 # PROGAIIINNNEEERRRR
 # BEEFCAKE — Build Execution, Evaluation, Fetching, Compilation, Assembly, and Kernel/Environment generation.
 set -Eeuo pipefail
@@ -49,11 +49,12 @@ Options:
   --continue-sourceforge Resume the newest complete local ISO pair, then exit
   --test                  Boot the x86_64 ISO in the test VM; require approval before upload
   --builders SPEC         Override Nix's remote builder list for this run
-  --check-builders        Test both build architectures, then exit (no release)
+  --check-builders        Test selected build architectures, then exit (no release)
+  --no-emu                Build only x86_64; skip ARM emulation and builds
   --jobs N                Concurrent local Nix jobs (default: auto)
   --cores N               Cores per local build, 0 means all (default: 0)
   --yes                   Accept the final publication confirmation
-  --update                Commit/sync all 3 repos and push the updater's Studio pin
+  --update                Publish Studio, push its updater pin, and sync all 3 repos
   -h, --help              Show this help
 
 Environment overrides:
@@ -74,8 +75,8 @@ For multi-user Nix, BEEFCAKE applies the selected proxy to nix-daemon through
 a temporary runtime systemd drop-in and restores the daemon when it exits.
 BEEFCAKE does not source .zshrc or write proxy settings into /etc/nixos.
 
-Both x86_64-linux and aarch64-linux are always built. ARM can use local
-emulation or a remote Nix builder. Run --check-builders to test your setup.
+By default, x86_64-linux and aarch64-linux are built. ARM can use local
+emulation or a remote Nix builder. Use --no-emu for an x86_64-only run.
 
 The command is restartable. Existing GitHub release assets are retained and
 only missing architecture/checksum files are uploaded. SourceForge uploads use
@@ -104,6 +105,7 @@ test_release=0
 assume_yes=0
 check_builders=0
 update_repos=0
+no_emu=0
 builders="${UMBRA_BUILDERS:-}"
 local_jobs="${UMBRA_BUILD_JOBS:-auto}"
 build_cores="${UMBRA_BUILD_CORES:-0}"
@@ -163,6 +165,11 @@ while (( $# )); do
       ;;
     --update)
       update_repos=1
+      shift
+      ;;
+    --no-emu)
+      no_emu=1
+      systems=(x86_64-linux)
       shift
       ;;
     -h|--help)
@@ -297,6 +304,7 @@ EOF
 release_dir="$os_dir/result-beefcake-release"
 
 if (( continue_sourceforge )); then
+  (( ! no_emu )) || die "--continue-sourceforge conflicts with --no-emu"
   (( ! update_repos )) || die "--continue-sourceforge conflicts with --update"
   (( ! skip_sourceforge )) || die "--continue-sourceforge conflicts with --skip-sourceforge"
   (( ! test_release )) || die "--continue-sourceforge conflicts with --test"
@@ -333,6 +341,7 @@ fi
 
 (( ! test_release || ! skip_sourceforge )) || die "--test conflicts with --skip-sourceforge"
 (( ! check_builders || ! update_repos )) || die "--check-builders conflicts with --update"
+(( ! test_release || ! update_repos )) || die "--test conflicts with --update"
 
 command -v nix >/dev/null || die "required command is missing: nix"
 nix_options=(--max-jobs "$local_jobs" --cores "$build_cores" --option builders-use-substitutes true)
@@ -343,7 +352,7 @@ nix_build() {
 
 # A fresh derivation requires a real builder; cached release outputs alone
 # cannot prove that ARM jobs can run. Nothing is versioned or published here.
-note "Checking x86_64 and ARM64 builders"
+note "Checking builders for: ${systems[*]}"
 for system in "${systems[@]}"; do
   BEEFCAKE_PROBE_FLAKE="$os_dir" BEEFCAKE_PROBE_SYSTEM="$system" \
   BEEFCAKE_PROBE_NONCE="$(date +%s)-$$" nix_build --no-link --impure --expr '
@@ -355,11 +364,15 @@ for system in "${systems[@]}"; do
       preferLocalBuild = false;
       allowSubstitutes = false;
     } "echo builder-ready > $out"
-  ' || die "$system builder unavailable. Configure local ARM emulation or a remote Nix builder; see docs/arm64.md."
+  ' || die "$system builder unavailable. Configure a suitable local or remote Nix builder."
 done
-(( ! check_builders )) || { note "Both architectures can build"; exit 0; }
+(( ! check_builders )) || { note "Selected architectures can build"; exit 0; }
 
-for command in git gh python3 curl cp sha256sum rsync ssh zstd nix-instantiate; do
+required_commands=(git gh python3 curl cp sha256sum zstd nix-instantiate)
+if (( ! update_repos )); then
+  required_commands+=(rsync ssh)
+fi
+for command in "${required_commands[@]}"; do
   command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 
@@ -376,7 +389,7 @@ if [[ -z "$tag" ]]; then
 fi
 [[ $tag == "$expected_tag" ]] || die "tag must be $expected_tag because UmbraOS derives it from the Studio version"
 
-if [[ -n $proxy ]] && (( ! skip_sourceforge )); then
+if [[ -n $proxy ]] && (( ! skip_sourceforge && ! update_repos )); then
   command -v nc >/dev/null || die "nc is required for a proxied SourceForge upload"
 fi
 
@@ -389,8 +402,10 @@ if (( update_repos )); then
 fi
 printf 'Release:     %s (%s)\n' "$github_repo" "$tag"
 printf 'Systems:     %s\n' "${systems[*]}"
-printf 'SourceForge: %s@frs.sourceforge.net:/home/frs/project/%s/%s\n' \
-  "$sf_user" "$sf_project" "$sf_folder"
+if (( ! update_repos )); then
+  printf 'SourceForge: %s@frs.sourceforge.net:/home/frs/project/%s/%s\n' \
+    "$sf_user" "$sf_project" "$sf_folder"
+fi
 printf '\nStudio worktree:\n'
 git -C "$studio_dir" status --short
 printf '\nUmbraOS worktree:\n'
@@ -406,15 +421,13 @@ if (( ! assume_yes )); then
 fi
 
 if (( update_repos )); then
-  note "Committing local changes in all three repositories"
-  commit_repo "$api_dir" "Update Umbra API for Studio $version"
-  commit_repo "$studio_dir" "Update Umbra Studio $version"
-  commit_repo "$os_dir" "Update UmbraOS release tooling for Studio $version"
-
-  note "Syncing all three repositories before the release"
-  sync_repo "$api_dir"
-  sync_repo "$studio_dir"
-  sync_repo "$os_dir"
+  # Nix flakes include tracked and staged paths but omit untracked paths. Stage
+  # the three worktrees so builds see the complete release without committing
+  # anything until every Studio artifact and updater pin has been verified.
+  note "Staging all three repositories for reproducible evaluation"
+  git -C "$api_dir" add -A
+  git -C "$studio_dir" add -A
+  git -C "$os_dir" add -A
 fi
 
 note "Setting Umbra Studio version to $version"
@@ -481,11 +494,6 @@ if changed != 1:
 lock.write_text("[[package]]".join(parts))
 PY
 
-if (( update_repos )); then
-  commit_repo "$studio_dir" "Set Umbra Studio version to $version"
-  sync_repo "$studio_dir"
-fi
-
 declare -A studio_hashes iso_hashes published_isos
 github_assets=()
 sourceforge_assets=()
@@ -518,7 +526,7 @@ for system in "${systems[@]}"; do
   printf 'Studio %s: %s\n' "$system" "${studio_hashes[$system]}"
 done
 
-note "Publishing both Studio architectures to GitHub ($tag)"
+note "Publishing Studio architectures to GitHub ($tag): ${systems[*]}"
 if gh release view "$tag" --repo "$github_repo" >/dev/null 2>&1; then
   existing_asset_listing="$(
     gh release view "$tag" --repo "$github_repo" --json assets --jq '.assets[].name'
@@ -540,15 +548,15 @@ if gh release view "$tag" --repo "$github_repo" >/dev/null 2>&1; then
     note "Uploading ${#missing_assets[@]} missing Studio release asset(s)"
     gh release upload "$tag" "${missing_assets[@]}" --repo "$github_repo"
   else
-    note "All Studio architecture archives and checksums are already present"
+    note "All selected Studio archives and checksums are already present"
   fi
 else
   gh release create "$tag" "${github_assets[@]}" --repo "$github_repo" \
     --title "Studio $version" \
-    --notes "Umbra Studio $version source-free Linux binaries for x86_64 and ARM64."
+    --notes "Umbra Studio $version source-free Linux binaries for ${systems[*]}."
 fi
 
-# Do not update either OS pin until both public downloads verify successfully.
+# Do not update OS pins until all selected public downloads verify successfully.
 for system in "${systems[@]}"; do
   remote_archive="$work_dir/remote-umbra-studio-$system.tar.zst"
   curl --fail --location --retry 3 \
@@ -559,13 +567,32 @@ for system in "${systems[@]}"; do
   printf 'Verified GitHub asset (%s): %s\n' "$system" "$remote_sri"
 done
 
-note "Pinning both Studio hashes in UmbraOS"
+note "Pinning Studio releases in UmbraOS for: ${systems[*]}"
+pin_args=()
+for system in "${systems[@]}"; do
+  pin_args+=("$system" "${studio_hashes[$system]}")
+done
 python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/studio/package.nix" \
-  "$version" "${studio_hashes[x86_64-linux]}" "${studio_hashes[aarch64-linux]}"
+  "$version" "${pin_args[@]}"
 nix-instantiate --parse "$os_dir/modules/studio/package.nix" >/dev/null
 if (( update_repos )); then
+  note "Committing the verified Studio release and updater pin"
+  commit_repo "$api_dir" "Update Umbra API for Studio $version"
+  commit_repo "$studio_dir" "Release Umbra Studio $version"
   commit_repo "$os_dir" "Pin Umbra Studio $version release"
+
+  note "Syncing all three repositories"
+  sync_repo "$api_dir"
+  sync_repo "$studio_dir"
   sync_repo "$os_dir"
+
+  note "Studio update complete"
+  printf 'GitHub tag: %s\n' "$tag"
+  for system in "${systems[@]}"; do
+    printf 'Studio %s (%s): %s\n' "$version" "$system" "${studio_hashes[$system]}"
+  done
+  printf '\nUmbra API, Studio, and UmbraOS changes were committed and synced.\n'
+  exit 0
 fi
 
 # Stage release names as symlinks to the Nix results. This keeps the checkout
@@ -613,14 +640,14 @@ if (( test_release )); then
   note "Booting the x86_64 release candidate in the test VM"
   "$attach_iso" "${published_isos[x86_64-linux]}" || die "x86_64 VM test setup failed; SourceForge upload cancelled"
   printf '\nInspect the VM before approving publication.\n'
-  read -r -p "Type SHIP to upload both ISOs to SourceForge: " test_confirmation
+  read -r -p "Type SHIP to upload the selected ISO(s) to SourceForge: " test_confirmation
   [[ $test_confirmation == SHIP ]] || die "release test was not approved; SourceForge upload cancelled"
 fi
 
 if (( skip_sourceforge )); then
-  note "SourceForge upload skipped for both ISOs"
+  note "SourceForge upload skipped for selected ISO(s)"
 else
-  note "Uploading both ISOs and checksums to SourceForge"
+  note "Uploading selected ISO(s) and checksums to SourceForge"
   upload_sourceforge "${sourceforge_assets[@]}"
 fi
 
