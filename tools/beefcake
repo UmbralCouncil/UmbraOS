@@ -53,7 +53,7 @@ Options:
   --jobs N                Concurrent local Nix jobs (default: auto)
   --cores N               Cores per local build, 0 means all (default: 0)
   --yes                   Accept the final publication confirmation
-  --update                Commit/sync all 3 repos around the source-free Studio release
+  --update                Commit/sync all 3 repos and push the updater's Studio pin
   -h, --help              Show this help
 
 Environment overrides:

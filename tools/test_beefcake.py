@@ -239,6 +239,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(commits), 5)
         self.assertEqual(len(pulls), 5)
         self.assertEqual(len(pushes), 5)
+        self.assertTrue(any(args[-2:] == ["-m", "Pin Umbra Studio 0.2.0 release"]
+                            and args[:2] == ["-C", str(self.os)] for args in commits))
+        self.assertIn('version = "0.2.0";', self.pin.read_text())
+        self.assertNotIn("lib.fakeHash", self.pin.read_text())
         for repo in (self.api, self.studio, self.os):
             self.assertTrue(any(args[:2] == ["-C", str(repo)] and "push" in args
                                 for args in git_calls))
