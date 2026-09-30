@@ -14,6 +14,28 @@ note() {
   printf '\n==> %s\n' "$*"
 }
 
+commit_repo() {
+  local repo="$1"
+  local message="$2"
+  git -C "$repo" add -A
+  if git -C "$repo" diff --cached --quiet; then
+    note "No local changes to commit in ${repo##*/}"
+  else
+    git -C "$repo" commit -m "$message"
+  fi
+}
+
+sync_repo() {
+  local repo="$1"
+  local branch
+  branch="$(git -C "$repo" branch --show-current)"
+  [[ -n $branch ]] || die "${repo##*/} is on a detached HEAD; cannot sync"
+  git -C "$repo" remote get-url origin >/dev/null 2>&1 ||
+    die "${repo##*/} has no origin remote"
+  git -C "$repo" pull --rebase origin "$branch"
+  git -C "$repo" push origin "$branch"
+}
+
 usage() {
   cat <<'EOF'
 Usage: tools/beefcake [options]
@@ -31,10 +53,12 @@ Options:
   --jobs N                Concurrent local Nix jobs (default: auto)
   --cores N               Cores per local build, 0 means all (default: 0)
   --yes                   Accept the final publication confirmation
+  --update                Commit/sync all 3 repos around the source-free Studio release
   -h, --help              Show this help
 
 Environment overrides:
   UMBRA_STUDIO_DIR        UmbraStudio checkout (default: sibling of UmbraOS)
+  UMBRA_API_DIR           umbra-api checkout (default: sibling of UmbraOS)
   UMBRA_OS_DIR            UmbraOS checkout (default: parent of this script)
   UMBRA_GITHUB_REPO       Release repository (default: UmbralCouncil/UmbraOS)
   UMBRA_OS_SERIES         ISO series prefix (default: 26.05)
@@ -63,6 +87,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 default_os_dir="$(cd -- "$script_dir/.." && pwd -P)"
 os_dir="${UMBRA_OS_DIR:-$default_os_dir}"
 studio_dir="${UMBRA_STUDIO_DIR:-$(cd -- "$os_dir/.." && pwd -P)/UmbraStudio}"
+api_dir="${UMBRA_API_DIR:-$(cd -- "$os_dir/.." && pwd -P)/umbra-api}"
 github_repo="${UMBRA_GITHUB_REPO:-UmbralCouncil/UmbraOS}"
 os_series="${UMBRA_OS_SERIES:-26.05}"
 sf_user="${SOURCEFORGE_USER:-taptsecd}"
@@ -78,6 +103,7 @@ continue_sourceforge=0
 test_release=0
 assume_yes=0
 check_builders=0
+update_repos=0
 builders="${UMBRA_BUILDERS:-}"
 local_jobs="${UMBRA_BUILD_JOBS:-auto}"
 build_cores="${UMBRA_BUILD_CORES:-0}"
@@ -135,6 +161,10 @@ while (( $# )); do
       assume_yes=1
       shift
       ;;
+    --update)
+      update_repos=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -146,6 +176,9 @@ done
 [[ $EUID -ne 0 ]] || die "run this as your normal user, not with sudo"
 [[ -e "$studio_dir/.git" ]] || die "UmbraStudio repository not found at $studio_dir"
 [[ -e "$os_dir/.git" ]] || die "UmbraOS repository not found at $os_dir"
+if (( update_repos )); then
+  [[ -e "$api_dir/.git" ]] || die "umbra-api repository not found at $api_dir"
+fi
 
 [[ $local_jobs == auto || $local_jobs =~ ^[1-9][0-9]*$ ]] || die "--jobs must be auto or a positive integer"
 [[ $build_cores =~ ^[0-9]+$ ]] || die "--cores must be a non-negative integer"
@@ -264,6 +297,7 @@ EOF
 release_dir="$os_dir/result-beefcake-release"
 
 if (( continue_sourceforge )); then
+  (( ! update_repos )) || die "--continue-sourceforge conflicts with --update"
   (( ! skip_sourceforge )) || die "--continue-sourceforge conflicts with --skip-sourceforge"
   (( ! test_release )) || die "--continue-sourceforge conflicts with --test"
   candidates=(
@@ -298,6 +332,7 @@ if (( continue_sourceforge )); then
 fi
 
 (( ! test_release || ! skip_sourceforge )) || die "--test conflicts with --skip-sourceforge"
+(( ! check_builders || ! update_repos )) || die "--check-builders conflicts with --update"
 
 command -v nix >/dev/null || die "required command is missing: nix"
 nix_options=(--max-jobs "$local_jobs" --cores "$build_cores" --option builders-use-substitutes true)
@@ -349,6 +384,9 @@ note "Preflight"
 gh auth status || die "GitHub CLI is not authenticated"
 printf 'Studio:      %s\n' "$studio_dir"
 printf 'UmbraOS:     %s\n' "$os_dir"
+if (( update_repos )); then
+  printf 'Umbra API:   %s\n' "$api_dir"
+fi
 printf 'Release:     %s (%s)\n' "$github_repo" "$tag"
 printf 'Systems:     %s\n' "${systems[*]}"
 printf 'SourceForge: %s@frs.sourceforge.net:/home/frs/project/%s/%s\n' \
@@ -357,10 +395,26 @@ printf '\nStudio worktree:\n'
 git -C "$studio_dir" status --short
 printf '\nUmbraOS worktree:\n'
 git -C "$os_dir" status --short
+if (( update_repos )); then
+  printf '\nUmbra API worktree:\n'
+  git -C "$api_dir" status --short
+fi
 
 if (( ! assume_yes )); then
   read -r -p "Build and publish this release? Type PROGAINER to continue: " confirmation
   [[ $confirmation == PROGAINER ]] || die "publication cancelled"
+fi
+
+if (( update_repos )); then
+  note "Committing local changes in all three repositories"
+  commit_repo "$api_dir" "Update Umbra API for Studio $version"
+  commit_repo "$studio_dir" "Update Umbra Studio $version"
+  commit_repo "$os_dir" "Update UmbraOS release tooling for Studio $version"
+
+  note "Syncing all three repositories before the release"
+  sync_repo "$api_dir"
+  sync_repo "$studio_dir"
+  sync_repo "$os_dir"
 fi
 
 note "Setting Umbra Studio version to $version"
@@ -426,6 +480,11 @@ if changed != 1:
     raise SystemExit(f"{lock}: expected one umbra-studio-native package, changed {changed}")
 lock.write_text("[[package]]".join(parts))
 PY
+
+if (( update_repos )); then
+  commit_repo "$studio_dir" "Set Umbra Studio version to $version"
+  sync_repo "$studio_dir"
+fi
 
 declare -A studio_hashes iso_hashes published_isos
 github_assets=()
@@ -504,6 +563,10 @@ note "Pinning both Studio hashes in UmbraOS"
 python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/studio/package.nix" \
   "$version" "${studio_hashes[x86_64-linux]}" "${studio_hashes[aarch64-linux]}"
 nix-instantiate --parse "$os_dir/modules/studio/package.nix" >/dev/null
+if (( update_repos )); then
+  commit_repo "$os_dir" "Pin Umbra Studio $version release"
+  sync_repo "$os_dir"
+fi
 
 # Stage release names as symlinks to the Nix results. This keeps the checkout
 # free of duplicate ISO data while retaining checksums for resumable uploads.
@@ -567,4 +630,8 @@ for system in "${systems[@]}"; do
   printf 'Studio %s (%s): %s\n' "$version" "$system" "${studio_hashes[$system]}"
   printf 'UmbraOS ISO: %s\nUmbraOS SRI: %s\n' "${published_isos[$system]}" "${iso_hashes[$system]}"
 done
-printf '\nSource changes remain in the two worktrees for review and commit.\n'
+if (( update_repos )); then
+  printf '\nUmbra API, Studio, and UmbraOS changes were committed and synced.\n'
+else
+  printf '\nSource changes remain in the worktrees for review and commit.\n'
+fi

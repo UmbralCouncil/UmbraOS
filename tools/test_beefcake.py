@@ -69,6 +69,11 @@ elif command == "gh":
         for arg in args:
             path = pathlib.Path(arg)
             if path.is_file(): shutil.copy2(path, root / "remote" / path.name)
+elif command == "git":
+    if args[-2:] == ["branch", "--show-current"]:
+        print("main")
+    elif args[-3:] == ["diff", "--cached", "--quiet"]:
+        sys.exit(1 if os.environ.get("BEEFCAKE_TEST_GIT_DIRTY") else 0)
 elif command == "curl":
     url = next(x for x in args if x.startswith("https://"))
     name = pathlib.PurePosixPath(urllib.parse.urlsplit(url).path).name
@@ -112,7 +117,9 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.os = self.root / "Umbra OS"
         self.studio = self.root / "Umbra Studio"
-        for directory in [self.os / ".git", self.studio / ".git", self.root / "bin", self.root / "remote"]:
+        self.api = self.root / "umbra-api"
+        for directory in [self.os / ".git", self.studio / ".git", self.api / ".git",
+                          self.root / "bin", self.root / "remote"]:
             directory.mkdir(parents=True)
         self.pin = self.os / "modules/studio/package.nix"
         self.pin.parent.mkdir(parents=True)
@@ -146,6 +153,7 @@ class ReleaseTests(unittest.TestCase):
         attach_iso.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root / "bin") + ":" + os.environ["PATH"],
                         UMBRA_OS_DIR=str(self.os), UMBRA_STUDIO_DIR=str(self.studio),
+                        UMBRA_API_DIR=str(self.api),
                         BEEFCAKE_TEST_ROOT=str(self.root), UMBRA_BUILDERS="",
                         UMBRA_BUILD_JOBS="auto", UMBRA_BUILD_CORES="0")
         for name in ("http_proxy", "https_proxy", "ftp_proxy", "ssl_proxy", "all_proxy",
@@ -219,6 +227,21 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--max-jobs") + 1], "1")
         self.assertNotIn("lib.fakeHash", self.pin.read_text())
         self.assertNotEqual(stale.read_bytes(), b"stale")
+
+    def test_update_commits_and_syncs_all_three_repositories(self):
+        self.env["BEEFCAKE_TEST_GIT_DIRTY"] = "1"
+        result = self.run_release("--update", "--skip-sourceforge")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        git_calls = [args for command, args, _ in self.calls() if command == "git"]
+        commits = [args for args in git_calls if "commit" in args]
+        pulls = [args for args in git_calls if "pull" in args]
+        pushes = [args for args in git_calls if "push" in args]
+        self.assertEqual(len(commits), 5)
+        self.assertEqual(len(pulls), 5)
+        self.assertEqual(len(pushes), 5)
+        for repo in (self.api, self.studio, self.os):
+            self.assertTrue(any(args[:2] == ["-C", str(repo)] and "push" in args
+                                for args in git_calls))
 
     def test_builder_check_has_no_release_side_effects(self):
         before = self.pin.read_bytes()
