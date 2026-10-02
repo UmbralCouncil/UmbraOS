@@ -297,7 +297,7 @@ in
         format-ethernet = "󰈀  wired";
         format-disconnected = "󰖪  offline";
         tooltip-format = "{ifname}: {ipaddr}/{cidr}";
-        on-click = "/run/current-system/sw/bin/nmtui";
+        on-click = "/run/current-system/sw/bin/kitty /run/current-system/sw/bin/nmtui";
       };
       bluetooth = {
         format = "  {status}";
