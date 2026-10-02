@@ -14,12 +14,6 @@ const RUNTIME_PATH: &str = "@PATH@";
 const NIX_BIN: &str = "@NIX@";
 const MKPASSWD_BIN: &str = "@MKPASSWD@";
 const NIRI_BIN: &str = "@NIRI@";
-const UMBRA_SOURCE: &str = "@UMBRA_SOURCE@";
-const NIXPKGS_SOURCE: &str = "@NIXPKGS_SOURCE@";
-const NIXPKGS_UNSTABLE_SOURCE: &str = "@NIXPKGS_UNSTABLE_SOURCE@";
-const HOME_MANAGER_SOURCE: &str = "@HOME_MANAGER_SOURCE@";
-const MICROVM_SOURCE: &str = "@MICROVM_SOURCE@";
-const SPECTRUM_SOURCE: &str = "@SPECTRUM_SOURCE@";
 const LOG_PATH: &str = "/run/umbra-installer/install.log";
 const BACKEND_SOCKET: &str = "/run/umbra-installer/backend.sock";
 const BACKEND_PID: &str = "/run/umbra-installer/backend.pid";
@@ -665,11 +659,6 @@ fn build_target_system() -> BackendResult<String> {
     fs::create_dir_all("/mnt/.umbra-installer-tmp").map_err(|error| {
         BackendError::internal(format!("could not create target build directory: {error}"))
     })?;
-    let nixpkgs = format!("path:{NIXPKGS_SOURCE}");
-    let nixpkgs_unstable = format!("path:{NIXPKGS_UNSTABLE_SOURCE}");
-    let home_manager = format!("path:{HOME_MANAGER_SOURCE}");
-    let microvm = format!("path:{MICROVM_SOURCE}");
-    let spectrum = format!("path:{SPECTRUM_SOURCE}");
     let args = [
         "--extra-experimental-features",
         "nix-command flakes",
@@ -684,21 +673,6 @@ fn build_target_system() -> BackendResult<String> {
         "--no-link",
         "--print-out-paths",
         "--no-write-lock-file",
-        "--override-input",
-        "nixpkgs",
-        &nixpkgs,
-        "--override-input",
-        "nixpkgs-unstable",
-        &nixpkgs_unstable,
-        "--override-input",
-        "home-manager",
-        &home_manager,
-        "--override-input",
-        "microvm",
-        &microvm,
-        "--override-input",
-        "microvm/spectrum",
-        &spectrum,
         "path:/mnt/etc/umbra#nixosConfigurations.default.config.system.build.toplevel",
     ];
     streamed_output(NIX_BIN, &args)
@@ -822,9 +796,8 @@ fn install_system(body: &str) -> BackendResult<String> {
         .and_then(|_| fs::create_dir_all("/mnt/etc"))
         .map_err(|error| BackendError::internal(format!("could not prepare /mnt: {error}")))?;
     run("mount", &[&esp, "/mnt/boot"])?;
-    // Install a real, root-owned checkout.  UMBRA_SOURCE remains used by the
-    // package build and pinned-input overrides, but installed systems update
-    // from this fixed upstream rather than an immutable Nix-store snapshot.
+    // Install a real, root-owned checkout. Installed systems update from this
+    // fixed upstream rather than an immutable Nix-store snapshot.
     run(
         "git",
         &[
@@ -852,7 +825,7 @@ fn install_system(body: &str) -> BackendResult<String> {
     fs::write("/mnt/etc/umbra/installer-settings.nix", settings)
         .map_err(|error| BackendError::internal(format!("could not write settings: {error}")))?;
 
-    log("building target system online from ISO-pinned flake inputs");
+    log("building target system online from the cloned flake lockfile");
     let system_path = build_target_system()?;
     if system_path.is_empty() {
         return Err(BackendError::internal(

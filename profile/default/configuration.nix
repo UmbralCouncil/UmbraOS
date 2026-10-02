@@ -6,6 +6,7 @@
     ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
     ../../modules/virt/core.nix
+    ../../modules/labs/images
   ];
   # One line to change the kernel, comment out to use LTS
   # boot.kernelPackages = pkgs.linuxPackages_latest;

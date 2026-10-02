@@ -4,10 +4,10 @@
     packages = with pkgs; [
       # Use the prefix 'unstable.' for unstable packages
       git
-      htop
       glib
       glibc
-      # vim
+      vim
+      obsidian
     ];
 in {
   # Persistent installs keep these in the user's Home Manager profile. The

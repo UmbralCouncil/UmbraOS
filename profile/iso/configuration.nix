@@ -25,8 +25,6 @@ let
   }).activationPackage;
   umbraInstaller = import ../../installer {
     inherit pkgs;
-    source = inputs.self;
-    flakeInputs = inputs;
   };
   liveNiriConfig = pkgs.writeText "umbra-live.kdl" ''
     spawn-at-startup "${umbraInstaller}/bin/umbra-installer"
@@ -39,12 +37,9 @@ in
     # ../../modules/iso (wired into the umbra-live flake output). Umbra replaces
     # the base profile's installer flow with its own local web UI and constrained
     # Rust backend. This profile only layers the Umbra-specific live-session UX
-    # and shared tooling on top; it must not re-import the graphical base or
+    # on top; it must not re-import the graphical base or
     # ../../modules/desktop/niri.nix because the ISO module owns it.
-    ../../modules/apps/software.nix
-    ../../modules/commands/software.nix
     ../../modules/commands/shell.nix
-    ../../modules/virt/core.nix
   ];
 
   # The installed system uses Limine, but the ISO boots via the iso-image

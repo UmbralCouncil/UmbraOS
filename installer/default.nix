@@ -1,4 +1,4 @@
-{ pkgs, source, flakeInputs }:
+{ pkgs }:
 let
   runtimePath = pkgs.lib.makeBinPath [
     pkgs.bash pkgs.coreutils pkgs.curl pkgs.dosfstools pkgs.gawk pkgs.gnugrep pkgs.gnused
@@ -31,13 +31,7 @@ pkgs.rustPlatform.buildRustPackage {
       --replace-fail @SYSTEM@ '${pkgs.stdenv.hostPlatform.system}' \
       --replace-fail @NIX@ '${pkgs.nix}/bin/nix' \
       --replace-fail @MKPASSWD@ '${pkgs.mkpasswd}/bin/mkpasswd' \
-      --replace-fail @NIRI@ '${pkgs.niri}/bin/niri' \
-      --replace-fail @UMBRA_SOURCE@ '${source}' \
-      --replace-fail @NIXPKGS_SOURCE@ '${flakeInputs.nixpkgs}' \
-      --replace-fail @NIXPKGS_UNSTABLE_SOURCE@ '${flakeInputs.nixpkgs-unstable}' \
-      --replace-fail @HOME_MANAGER_SOURCE@ '${flakeInputs.home-manager}' \
-      --replace-fail @MICROVM_SOURCE@ '${flakeInputs.microvm}' \
-      --replace-fail @SPECTRUM_SOURCE@ '${flakeInputs.microvm.inputs.spectrum}'
+      --replace-fail @NIRI@ '${pkgs.niri}/bin/niri'
     rustc --edition=2021 -O backend-generated.rs -o "$out/libexec/umbra-installer/backend"
     wrapProgram "$out/bin/umbra-installer-ui" \
       --prefix LD_LIBRARY_PATH : /run/opengl-driver/lib:${pkgs.lib.makeLibraryPath [

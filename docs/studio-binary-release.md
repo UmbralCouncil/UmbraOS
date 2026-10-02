@@ -31,7 +31,7 @@ paths, and Data Forensics material in the archive.
 4. Run an UmbraOS build. The first build fails with the expected fixed-output
    hash and prints the archive's actual Nix hash.
 5. Replace `lib.fakeHash` with that `sha256-...` value.
-6. Build the persistent configuration and ISO.
+6. Build the persistent configuration and installer ISO.
 
 ```sh
 nix build .#nixosConfigurations.default.config.system.build.toplevel
@@ -41,6 +41,10 @@ nix build .#iso
 The installed closure contains the compiled Studio application, its desktop
 assets and EULA, plus the open Umbra Core guest runner. It does not contain the
 private Studio repository or external courses.
+
+The live ISO contains neither Studio nor the MicroVM/lab payloads. It provides
+only the live desktop and Umbra Installer; the installer clones this repository
+and builds the persistent configuration into the target system.
 
 ## Automated release: BEEFCAKE
 

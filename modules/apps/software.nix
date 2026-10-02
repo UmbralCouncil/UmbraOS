@@ -9,7 +9,7 @@
     };
     commonPackages = with pkgs; [
       # Use the prefix 'unstable.' for unstable packages
-      firefox
+      librewolf
     ];
     installedPackages = [ umbraStudio ] ++ commonPackages;
 in {

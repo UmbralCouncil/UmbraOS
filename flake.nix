@@ -72,7 +72,7 @@
       # blocks shipping unpinned hashes; this check is purely about shape).
       checks.${system}.images-schema =
         let
-          catalog = inputs.self.nixosConfigurations."umbra-live-${system}".config.umbra.labs.catalog;
+          catalog = inputs.self.nixosConfigurations."umbra-${system}".config.umbra.labs.catalog;
           # unsafeDiscardStringContext: store_path carries a reference to the
           # bundled .drv; strip it so writing the file needs no build/fetch.
           catalogJson = pkgs.writeText "umbra-images.json"
@@ -94,8 +94,6 @@
         # Useful as a standalone artifact for UI/backend testing.
         installer = import ./installer {
           inherit pkgs;
-          source = inputs.self;
-          flakeInputs = inputs;
         };
 
         # The bootable UmbraOS live ISO. The live configuration imports the ISO
@@ -108,7 +106,7 @@
         # This is the exact derivation the installed system ships, so the fixture
         # is byte-identical to the on-disk file.
         images-json =
-          inputs.self.nixosConfigurations."umbra-live-${system}".config.environment.etc."umbra-runtime/images.json".source;
+          inputs.self.nixosConfigurations."umbra-${system}".config.environment.etc."umbra-runtime/images.json".source;
 
         # Public, reviewable Umbra Store catalog. Studio fetches this output from
         # the Git repository and caches the last valid copy for offline use.
@@ -176,7 +174,6 @@
           ./profile/iso/hardware.nix
           ./profile/iso/configuration.nix
           ./modules/iso
-          ./modules/labs/images
           ./compose.nix
         ];
       };
