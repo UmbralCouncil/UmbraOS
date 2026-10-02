@@ -6,8 +6,8 @@
       git
       glib
       glibc
+      nano
       vim
-      obsidian
     ];
 in {
   # Persistent installs keep these in the user's Home Manager profile. The
