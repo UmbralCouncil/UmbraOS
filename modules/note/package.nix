@@ -7,8 +7,8 @@
 
 let
   release = {
-    x86_64-linux = { version = "0.0.1"; hash = "sha256-Fi1GASoFdNkfKobhG4W7gy9CHfbru03VnDZ4Tf7IZvQ="; };
-    aarch64-linux = { version = "0.0.1"; hash = "sha256-Jjg8vykerveY2lsx4YqSpYzmeBLOR/MbLLV14LToUBk="; };
+    x86_64-linux = { version = "0.0.2"; hash = "sha256-s/LMVlpZKgvz9TJG0CB9PVODvHLYmTlaNkXjba2FNXA="; };
+    aarch64-linux = { version = "0.0.2"; hash = "sha256-hISZwRW5WSKflZ9+qOeXuuOf81UFYNFC/NNffpPibuw="; };
   }.${stdenv.hostPlatform.system};
 in stdenv.mkDerivation (finalAttrs: {
   pname = "umbra-note-bin";
