@@ -1,7 +1,8 @@
 { lib, stdenv, fetchurl, autoPatchelfHook, makeWrapper, zstd,
   alsa-lib, atk, at-spi2-atk, cairo, cups, dbus, expat, fontconfig, freetype,
-  glib, gtk3, libdrm, libgbm, libGL, libxkbcommon, mesa, nspr, nss, pango,
-  systemd, wayland, libx11, libxcb, libxcomposite, libxdamage, libxext,
+  glib, gtk3, libdrm, libgbm, libGL, libpulseaudio, libxkbcommon, libxslt,
+  mesa, nspr, nss, pango, flac, systemd, wayland, libx11, libxcb,
+  libxcomposite, libxdamage, libxext,
   libxfixes, libxrandr, releaseArchive ? null }:
 
 let
@@ -20,8 +21,9 @@ in stdenv.mkDerivation (finalAttrs: {
   nativeBuildInputs = [ autoPatchelfHook makeWrapper zstd ];
   buildInputs = [
     stdenv.cc.cc.lib alsa-lib atk at-spi2-atk cairo cups dbus expat fontconfig
-    freetype glib gtk3 libdrm libgbm libGL libxkbcommon mesa nspr nss pango
-    systemd wayland libx11 libxcb libxcomposite libxdamage libxext libxfixes libxrandr
+    freetype glib gtk3 libdrm libgbm libGL libpulseaudio libxkbcommon libxslt
+    mesa nspr nss pango flac systemd wayland libx11 libxcb libxcomposite
+    libxdamage libxext libxfixes libxrandr
   ];
   dontBuild = true;
   installPhase = ''
