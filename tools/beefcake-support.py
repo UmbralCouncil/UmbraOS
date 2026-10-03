@@ -127,7 +127,17 @@ def audit_note(archive, system):
                         if size > 768 * 1024 * 1024:
                             raise ValueError("Umbra Note release exceeds the 768 MiB audit limit")
                         seen.add(name)
-                        if name == "lib/umbra-note/electron/electron":
+                        if name == "bin/umbra-note":
+                            if member.size > 4096:
+                                raise ValueError("Umbra Note launcher is unexpectedly large")
+                            contents = bundle.extractfile(member).read()
+                            if not contents.startswith(b"#!/bin/sh\n"):
+                                raise ValueError("Umbra Note launcher must use portable /bin/sh")
+                            if b"/nix/store/" in contents:
+                                raise ValueError("Umbra Note launcher contains a producer Nix store path")
+                            if not member.mode & 0o111:
+                                raise ValueError("Umbra Note launcher has no execute permission")
+                        elif name == "lib/umbra-note/electron/electron":
                             contents = bundle.extractfile(member).read(64)
                             if len(contents) < 64 or contents[:6] != b"\x7fELF\x02\x01":
                                 raise ValueError("Umbra Note Electron runtime must be a 64-bit little-endian ELF")

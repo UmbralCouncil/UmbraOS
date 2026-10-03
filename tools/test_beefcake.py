@@ -114,11 +114,12 @@ def make_archive(path, machine=183, extra=None):
             subprocess.run(["zstd", "-q", "-c"], stdin=raw, stdout=output, check=True)
 
 
-def make_note_archive(path, machine=183):
+def make_note_archive(path, machine=183, launcher=b"#!/bin/sh\nexec true\n"):
     header = bytearray(64)
     header[:6] = b"\x7fELF\x02\x01"
     struct.pack_into("<H", header, 18, machine)
     entries = {name: b"release asset" for name in SUPPORT.NOTE_REQUIRED_FILES}
+    entries["bin/umbra-note"] = launcher
     entries["lib/umbra-note/electron/electron"] = bytes(header)
     with tempfile.TemporaryFile() as raw:
         with tarfile.open(fileobj=raw, mode="w") as tar:
@@ -130,6 +131,24 @@ def make_note_archive(path, machine=183):
         raw.seek(0)
         with path.open("wb") as output:
             subprocess.run(["zstd", "-q", "-c"], stdin=raw, stdout=output, check=True)
+
+
+class NoteAuditTests(unittest.TestCase):
+    def test_accepts_portable_launcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "note.tar.zst"
+            make_note_archive(archive)
+            SUPPORT.audit_note(archive, "aarch64-linux")
+
+    def test_rejects_producer_store_shebang(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "note.tar.zst"
+            make_note_archive(
+                archive,
+                launcher=b"#!/nix/store/deadbeef-bash/bin/sh\nexec true\n",
+            )
+            with self.assertRaisesRegex(ValueError, "portable /bin/sh"):
+                SUPPORT.audit_note(archive, "aarch64-linux")
 
 
 class ReleaseTests(unittest.TestCase):

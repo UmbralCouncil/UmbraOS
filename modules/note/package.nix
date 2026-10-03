@@ -30,6 +30,9 @@ in stdenv.mkDerivation (finalAttrs: {
     runHook preInstall
     mkdir -p $out
     cp -R bin lib share $out/
+    # Published bundles must use /bin/sh, but normalize older bundles too so
+    # an interpreter from the producer's Nix store can never leak through.
+    sed -i '1c #!/bin/sh' $out/bin/umbra-note
     wrapProgram $out/lib/umbra-note/electron/electron \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath finalAttrs.buildInputs}"
     runHook postInstall
