@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate release bundles and update architecture-specific Studio pins."""
+"""Validate Umbra release bundles and update architecture-specific pins."""
 
 import argparse
 import base64
@@ -19,6 +19,13 @@ RELEASE_FILES = {
     "share/icons/hicolor/scalable/apps/umbra-studio.svg",
     "share/applications/umbra-studio.desktop",
     "share/licenses/umbra-studio/EULA.md",
+}
+NOTE_REQUIRED_FILES = {
+    "bin/umbra-note",
+    "lib/umbra-note/electron/electron",
+    "lib/umbra-note/app/package.json",
+    "share/icons/hicolor/512x512/apps/umbra-note.png",
+    "share/applications/umbra-note.desktop",
 }
 
 
@@ -91,6 +98,57 @@ def audit(archive, system):
     print(f"Audited source-free {system} bundle: {archive}")
 
 
+def audit_note(archive, system):
+    """Audit a self-contained Electron bundle without extracting it."""
+    expected_machine = {"x86_64-linux": 62, "aarch64-linux": 183}[system]
+    forbidden_suffixes = (".ts", ".tsx", ".map")
+    seen = set()
+    size = 0
+    with subprocess.Popen(["zstd", "-dc", str(archive)], stdout=subprocess.PIPE) as process:
+        try:
+            with tarfile.open(fileobj=process.stdout, mode="r|") as bundle:
+                for member in bundle:
+                    path = PurePosixPath(member.name)
+                    if path.is_absolute() or ".." in path.parts:
+                        raise ValueError(f"unsafe archive path: {member.name}")
+                    if member.isdir():
+                        continue
+                    name = str(path)
+                    if name.startswith("./"):
+                        name = name[2:]
+                    if not (name == "bin/umbra-note" or name.startswith("lib/umbra-note/")
+                            or name.startswith("share/applications/")
+                            or name.startswith("share/icons/")):
+                        raise ValueError(f"unexpected archive entry: {name}")
+                    if name.endswith(forbidden_suffixes) or name.endswith("package-lock.json"):
+                        raise ValueError(f"source or development file in release: {name}")
+                    if member.isfile():
+                        size += member.size
+                        if size > 768 * 1024 * 1024:
+                            raise ValueError("Umbra Note release exceeds the 768 MiB audit limit")
+                        seen.add(name)
+                        if name == "lib/umbra-note/electron/electron":
+                            contents = bundle.extractfile(member).read(64)
+                            if len(contents) < 64 or contents[:6] != b"\x7fELF\x02\x01":
+                                raise ValueError("Umbra Note Electron runtime must be a 64-bit little-endian ELF")
+                            if struct.unpack_from("<H", contents, 18)[0] != expected_machine:
+                                raise ValueError(f"Umbra Note runtime is not {system}")
+                            if not member.mode & 0o111:
+                                raise ValueError("Umbra Note runtime has no execute permission")
+                    elif not member.issym():
+                        raise ValueError(f"unexpected archive member type: {name}")
+            if process.wait() != 0:
+                raise ValueError("zstd decompression failed")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+    missing = NOTE_REQUIRED_FILES - seen
+    if missing:
+        raise ValueError(f"Umbra Note bundle is missing: {sorted(missing)}")
+    print(f"Audited source-free Umbra Note {system} bundle: {archive}")
+
+
 def pin(path, version, hashes):
     path = Path(path)
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
@@ -141,6 +199,9 @@ def main():
     audit_parser = commands.add_parser("audit")
     audit_parser.add_argument("archive", type=Path)
     audit_parser.add_argument("system", choices=SYSTEMS)
+    note_audit_parser = commands.add_parser("audit-note")
+    note_audit_parser.add_argument("archive", type=Path)
+    note_audit_parser.add_argument("system", choices=SYSTEMS)
     pin_parser = commands.add_parser("pin")
     pin_parser.add_argument("path", type=Path)
     pin_parser.add_argument("version")
@@ -149,6 +210,8 @@ def main():
     try:
         if args.command == "audit":
             audit(args.archive, args.system)
+        elif args.command == "audit-note":
+            audit_note(args.archive, args.system)
         elif args.command == "pin":
             if len(args.release) % 2:
                 raise ValueError("pin requires SYSTEM HASH pairs")

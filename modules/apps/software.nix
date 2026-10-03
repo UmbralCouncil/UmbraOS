@@ -7,16 +7,24 @@
       mistralCpuRunner = inputs.self.packages.${pkgs.system}.ai-runner-cpu;
       llamaVulkanRunner = inputs.self.packages.${pkgs.system}.ai-runner-vulkan;
     };
+    umbraNote = pkgs.callPackage ../note/package.nix {
+      releaseArchive = config.umbra.note.releaseArchive;
+    };
     commonPackages = with pkgs; [
       # Use the prefix 'unstable.' for unstable packages
       librewolf
     ];
-    installedPackages = [ umbraStudio ] ++ commonPackages;
+    installedPackages = [ umbraStudio umbraNote ] ++ commonPackages;
 in {
   options.umbra.studio.releaseArchive = lib.mkOption {
     type = lib.types.nullOr lib.types.path;
     default = null;
     description = "Optional source-free Studio archive for this host architecture, used before publishing a release.";
+  };
+  options.umbra.note.releaseArchive = lib.mkOption {
+    type = lib.types.nullOr lib.types.path;
+    default = null;
+    description = "Optional source-free Umbra Note archive for this host architecture, used before publishing a release.";
   };
   # Persistent installs keep these in the user's Home Manager profile. The
   # ephemeral live account has no writable profile, so expose them system-wide.

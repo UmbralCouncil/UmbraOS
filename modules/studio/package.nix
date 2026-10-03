@@ -28,8 +28,8 @@ let
       hash = "sha256-bh/UFGzhv3jvx1kqwWl2tkru1AaRDQwIWil9RsA1fts=";
     };
     aarch64-linux = {
-      version = "0.2.1";
-      hash = "sha256-kK/DiJkd1mZ0TkylNKjyMAjRAFVuurQuN5B243hmR1I=";
+      version = "0.2.2";
+      hash = "sha256-jWBtlpXjv8HHwYrHBjAQM0JtCh0/dIn+T8rvVgl29Uk=";
     };
   }.${stdenv.hostPlatform.system};
 in

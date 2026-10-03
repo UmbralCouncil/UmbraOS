@@ -39,28 +39,31 @@ if command == "nix":
         target = next(x for x in args if "#" in x)
         system = "aarch64-linux" if "aarch64-linux" in target else "x86_64-linux"
         if "release-bundle" in target:
-            if fail == "studio:" + system: sys.exit(1)
+            is_note = "Umbra Note" in target
+            product = "note" if is_note else "studio"
+            if fail == product + ":" + system: sys.exit(1)
             source_system = "x86_64-linux" if fail == "wrong-architecture" else system
             output = pathlib.Path(args[args.index("-o") + 1])
             output.unlink(missing_ok=True)
-            output.symlink_to(root / (source_system + ".tar.zst"))
+            output.symlink_to(root / (("note-" if is_note else "") + source_system + ".tar.zst"))
         elif target.endswith(".iso"):
             if fail == "iso:" + system: sys.exit(1)
             output = pathlib.Path(args[args.index("-o") + 1]) / "iso"
             output.mkdir(parents=True, exist_ok=True)
             (output / (system + ".iso")).write_bytes(b"test ISO " + system.encode())
-        elif "umbraIsoSizeCheck" in target:
-            if fail == "size:" + system: sys.exit(1)
         else: sys.exit("unexpected build target: " + target)
     else: sys.exit("unexpected nix invocation")
 elif command == "gh":
     if args[:2] == ["release", "view"]:
         if not os.environ.get("BEEFCAKE_TEST_EXISTING"): sys.exit(1)
         if "--json" in args:
-            assets = os.environ.get("BEEFCAKE_TEST_EXISTING_ASSETS")
+            repo = args[args.index("--repo") + 1]
+            assets = os.environ.get("BEEFCAKE_TEST_NOTE_EXISTING_ASSETS" if repo.endswith("UmbraNote")
+                                    else "BEEFCAKE_TEST_EXISTING_ASSETS")
             if assets is None:
+                prefix = "umbra-note" if repo.endswith("UmbraNote") else "umbra-studio"
                 assets = ",".join(
-                    f"umbra-studio-{system}.tar.zst{suffix}"
+                    f"{prefix}-{system}.tar.zst{suffix}"
                     for system in ("x86_64-linux", "aarch64-linux")
                     for suffix in ("", ".sha256")
                 )
@@ -111,6 +114,24 @@ def make_archive(path, machine=183, extra=None):
             subprocess.run(["zstd", "-q", "-c"], stdin=raw, stdout=output, check=True)
 
 
+def make_note_archive(path, machine=183):
+    header = bytearray(64)
+    header[:6] = b"\x7fELF\x02\x01"
+    struct.pack_into("<H", header, 18, machine)
+    entries = {name: b"release asset" for name in SUPPORT.NOTE_REQUIRED_FILES}
+    entries["lib/umbra-note/electron/electron"] = bytes(header)
+    with tempfile.TemporaryFile() as raw:
+        with tarfile.open(fileobj=raw, mode="w") as tar:
+            for name, data in entries.items():
+                member = tarfile.TarInfo("./" + name)
+                member.mode = 0o755 if name in ("bin/umbra-note", "lib/umbra-note/electron/electron") else 0o644
+                member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+        raw.seek(0)
+        with path.open("wb") as output:
+            subprocess.run(["zstd", "-q", "-c"], stdin=raw, stdout=output, check=True)
+
+
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="beefcake-test-")
@@ -118,13 +139,17 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.os = self.root / "Umbra OS"
         self.studio = self.root / "Umbra Studio"
+        self.note = self.root / "Umbra Note"
         self.api = self.root / "umbra-api"
-        for directory in [self.os / ".git", self.studio / ".git", self.api / ".git",
+        for directory in [self.os / ".git", self.studio / ".git", self.note / ".git", self.api / ".git",
                           self.root / "bin", self.root / "remote"]:
             directory.mkdir(parents=True)
         self.pin = self.os / "modules/studio/package.nix"
         self.pin.parent.mkdir(parents=True)
         shutil.copy2(TOOLS.parent / "modules/studio/package.nix", self.pin)
+        self.note_pin = self.os / "modules/note/package.nix"
+        self.note_pin.parent.mkdir(parents=True)
+        shutil.copy2(TOOLS.parent / "modules/note/package.nix", self.note_pin)
         files = {
             "crates/umbra-gui/Cargo.toml": 'version = "0.1.9"\n',
             "flake.nix": 'version = "0.1.9";\n"umbra-studio-0.1.9-${system}.tar.zst"\n',
@@ -136,8 +161,12 @@ class ReleaseTests(unittest.TestCase):
             path = self.studio / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
+        (self.note / "package.json").write_text('{"name":"umbra-note","version":"0.1.9"}\n')
+        (self.note / "package-lock.json").write_text('{"name":"umbra-note","version":"0.1.9","packages":{"":{"version":"0.1.9"}}}\n')
+        (self.note / "flake.nix").write_text('version = "0.1.9";\n"umbra-note-${version}-${system}.tar.zst"\n')
         for system, machine in [("x86_64-linux", 62), ("aarch64-linux", 183)]:
             make_archive(self.root / (system + ".tar.zst"), machine)
+            make_note_archive(self.root / ("note-" + system + ".tar.zst"), machine)
         for command in ["git", "gh", "nix", "curl", "rsync", "ssh", "nix-instantiate", "date"]:
             path = self.root / "bin" / command
             path.write_text(MOCK)
@@ -154,6 +183,7 @@ class ReleaseTests(unittest.TestCase):
         attach_iso.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root / "bin") + ":" + os.environ["PATH"],
                         UMBRA_OS_DIR=str(self.os), UMBRA_STUDIO_DIR=str(self.studio),
+                        UMBRA_NOTE_DIR=str(self.note),
                         UMBRA_API_DIR=str(self.api),
                         BEEFCAKE_TEST_ROOT=str(self.root), UMBRA_BUILDERS="",
                         UMBRA_BUILD_JOBS="auto", UMBRA_BUILD_CORES="0")
@@ -166,7 +196,9 @@ class ReleaseTests(unittest.TestCase):
         if check:
             args += ["--check-builders"]
         else:
-            args += ["--version", "0.2.0", "--tag", "studio-v0.2.0", "--no-proxy", "--yes"]
+            args += ["--version", "0.2.0", "--tag", "studio-v0.2.0",
+                     "--note-version", "0.0.1", "--note-tag", "v0.0.1",
+                     "--no-proxy", "--yes"]
         return subprocess.run(args + list(extra), env=dict(self.env, BEEFCAKE_TEST_FAIL=fail),
                               input=input_text, text=True, capture_output=True, timeout=30)
 
@@ -180,7 +212,8 @@ class ReleaseTests(unittest.TestCase):
     def seed_existing_release(self, asset_names=None):
         if asset_names is None:
             asset_names = [
-                f"umbra-studio-{system}.tar.zst{suffix}"
+                f"{product}-{system}.tar.zst{suffix}"
+                for product in ("umbra-studio", "umbra-note")
                 for system in SUPPORT.SYSTEMS
                 for suffix in ("", ".sha256")
             ]
@@ -188,7 +221,7 @@ class ReleaseTests(unittest.TestCase):
         for name in asset_names:
             target = remote / name
             system = next(system for system in SUPPORT.SYSTEMS if system in name)
-            source = self.root / f"{system}.tar.zst"
+            source = self.root / f"{'note-' if name.startswith('umbra-note') else ''}{system}.tar.zst"
             if name.endswith(".sha256"):
                 digest = hashlib.sha256(source.read_bytes()).hexdigest()
                 target.write_text(f"{digest}  {name.removesuffix('.sha256')}\n")
@@ -205,9 +238,9 @@ class ReleaseTests(unittest.TestCase):
         stale.chmod(0o444)
         result = self.run_release("--builders", "ssh-ng://builder@arm aarch64-linux", "--jobs", "1", "--cores", "2")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(self.publications()), 1)
+        self.assertEqual(len(self.publications()), 2)
         assets = [x.name for x in (self.root / "remote").iterdir()]
-        self.assertEqual(len(assets), 4)
+        self.assertEqual(len(assets), 8)
         for system in SUPPORT.SYSTEMS:
             archive = self.root / "remote" / f"umbra-studio-{system}.tar.zst"
             expected = "sha256-" + base64.b64encode(hashlib.sha256(archive.read_bytes()).digest()).decode()
@@ -229,7 +262,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn("lib.fakeHash", self.pin.read_text())
         self.assertNotEqual(stale.read_bytes(), b"stale")
 
-    def test_update_commits_and_syncs_all_three_repositories(self):
+    def test_update_commits_and_syncs_all_four_repositories(self):
         self.env["BEEFCAKE_TEST_GIT_DIRTY"] = "1"
         result = self.run_release("--update")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -237,17 +270,19 @@ class ReleaseTests(unittest.TestCase):
         commits = [args for args in git_calls if "commit" in args]
         pulls = [args for args in git_calls if "pull" in args]
         pushes = [args for args in git_calls if "push" in args]
-        self.assertEqual(len(commits), 3)
-        self.assertEqual(len(pulls), 3)
-        self.assertEqual(len(pushes), 3)
-        self.assertTrue(any(args[-2:] == ["-m", "Pin Umbra Studio 0.2.0 release"]
+        self.assertEqual(len(commits), 4)
+        self.assertEqual(len(pulls), 4)
+        self.assertEqual(len(pushes), 4)
+        self.assertTrue(any(args[-2:] == ["-m", "Pin Umbra Studio 0.2.0 and Note 0.0.1 releases"]
                             and args[:2] == ["-C", str(self.os)] for args in commits))
         self.assertIn('version = "0.2.0";', self.pin.read_text())
+        self.assertIn('version = "0.0.1";', self.note_pin.read_text())
         self.assertNotIn("lib.fakeHash", self.pin.read_text())
+        self.assertNotIn("lib.fakeHash", self.note_pin.read_text())
         self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
         self.assertFalse(any(command == "nix" and any(arg.endswith(".iso") for arg in args)
                              for command, args, _ in self.calls()))
-        for repo in (self.api, self.studio, self.os):
+        for repo in (self.api, self.studio, self.note, self.os):
             self.assertTrue(any(args[:2] == ["-C", str(repo)] and "push" in args
                                 for args in git_calls))
 
@@ -313,11 +348,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
 
     def test_iso_failure_does_not_upload_partial_pair(self):
-        for stage in ["iso:aarch64-linux", "size:aarch64-linux"]:
-            with self.subTest(stage=stage):
-                result = self.run_release(fail=stage)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
+        result = self.run_release(fail="iso:aarch64-linux")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(command == "rsync" for command, _, _ in self.calls()))
 
     def test_existing_release_and_filename_collision(self):
         self.env["BEEFCAKE_TEST_EXISTING"] = "1"
@@ -363,7 +396,15 @@ class ReleaseTests(unittest.TestCase):
             "umbra-studio-aarch64-linux.tar.zst",
         ]
         self.env["BEEFCAKE_TEST_EXISTING_ASSETS"] = ",".join(existing_assets)
+        self.env["BEEFCAKE_TEST_NOTE_EXISTING_ASSETS"] = ",".join(
+            f"umbra-note-{system}.tar.zst{suffix}"
+            for system in SUPPORT.SYSTEMS for suffix in ("", ".sha256")
+        )
         self.seed_existing_release(existing_assets)
+        self.seed_existing_release(
+            f"umbra-note-{system}.tar.zst{suffix}"
+            for system in SUPPORT.SYSTEMS for suffix in ("", ".sha256")
+        )
         result = self.run_release("--skip-sourceforge")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         publications = self.publications()

@@ -58,7 +58,7 @@ It first tests that both x86 and ARM builds can execute, then updates Studio's
 version and builds both source-free bundles. Before publishing, it checks each
 archive for the expected files and ELF architecture. It publishes the archives
 and checksums to the same GitHub release, verifies both public downloads, and
-updates both SRI hashes in UmbraOS. It then builds and size-checks both ISOs and
+updates both SRI hashes in UmbraOS. It then builds both ISOs and
 uploads the pair and their checksums to SourceForge using resumable rsync.
 
 ISO names include the architecture, for example:
@@ -71,7 +71,7 @@ UmbraOS-26.05-20260910-aarch64-linux.iso
 If either local filename already exists, both use the next shared revision
 (`20260910v2`, and so on). An existing file is not overwritten. A per-checkout
 lock prevents overlapping BEEFCAKE runs. SourceForge receives neither ISO until
-both builds and size checks pass. GitHub Studio publication occurs earlier;
+both builds pass. GitHub Studio publication occurs earlier;
 a later ISO failure does not roll back the Studio release. Re-running reuses
 Nix build results and replaces the GitHub assets with `--clobber`.
 

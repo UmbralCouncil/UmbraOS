@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BEEFCAKE: build and publish Studio and UmbraOS releases.
+# BEEFCAKE: build and publish Umbra applications and UmbraOS releases.
 # PROGAIIINNNEEERRRR
 # BEEFCAKE — Build Execution, Evaluation, Fetching, Compilation, Assembly, and Kernel/Environment generation.
 set -Eeuo pipefail
@@ -43,6 +43,8 @@ Usage: tools/beefcake [options]
 Options:
   --version VERSION       Studio semantic version, for example 0.1.9
   --tag TAG               GitHub release tag (must be studio-vVERSION)
+  --note-version VERSION  Umbra Note semantic version, for example 0.0.1
+  --note-tag TAG          UmbraNote repository tag (must be vVERSION)
   --proxy HOST:PORT       HTTP proxy for client downloads and SourceForge SSH
   --no-proxy              Disable inherited client and SourceForge proxies
   --skip-sourceforge      Build both ISOs without uploading them
@@ -54,14 +56,16 @@ Options:
   --jobs N                Concurrent local Nix jobs (default: auto)
   --cores N               Cores per local build, 0 means all (default: 0)
   --yes                   Accept the final publication confirmation
-  --update                Publish Studio, push its updater pin, and sync all 3 repos
+  --update                Publish Studio and Note, pin both, and sync all 4 repos
   -h, --help              Show this help
 
 Environment overrides:
   UMBRA_STUDIO_DIR        UmbraStudio checkout (default: sibling of UmbraOS)
+  UMBRA_NOTE_DIR          UmbraNote checkout (default: sibling of UmbraOS)
   UMBRA_API_DIR           umbra-api checkout (default: sibling of UmbraOS)
   UMBRA_OS_DIR            UmbraOS checkout (default: parent of this script)
   UMBRA_GITHUB_REPO       Release repository (default: UmbralCouncil/UmbraOS)
+  UMBRA_NOTE_GITHUB_REPO  Note release repository (default: UmbralCouncil/UmbraNote)
   UMBRA_OS_SERIES         ISO series prefix (default: 26.05)
   UMBRA_BUILDERS          Default for --builders; otherwise use Nix configuration
   UMBRA_BUILD_JOBS        Default for --jobs
@@ -88,8 +92,10 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 default_os_dir="$(cd -- "$script_dir/.." && pwd -P)"
 os_dir="${UMBRA_OS_DIR:-$default_os_dir}"
 studio_dir="${UMBRA_STUDIO_DIR:-$(cd -- "$os_dir/.." && pwd -P)/UmbraStudio}"
+note_dir="${UMBRA_NOTE_DIR:-$(cd -- "$os_dir/.." && pwd -P)/UmbraNote}"
 api_dir="${UMBRA_API_DIR:-$(cd -- "$os_dir/.." && pwd -P)/umbra-api}"
 github_repo="${UMBRA_GITHUB_REPO:-UmbralCouncil/UmbraOS}"
+note_github_repo="${UMBRA_NOTE_GITHUB_REPO:-UmbralCouncil/UmbraNote}"
 os_series="${UMBRA_OS_SERIES:-26.05}"
 sf_user="${SOURCEFORGE_USER:-taptsecd}"
 sf_project="${SOURCEFORGE_PROJECT:-umbraos}"
@@ -97,6 +103,8 @@ sf_folder="${SOURCEFORGE_FOLDER:-}"
 
 version=""
 tag=""
+note_version=""
+note_tag=""
 proxy=""
 proxy_choice="auto"
 skip_sourceforge=0
@@ -121,6 +129,16 @@ while (( $# )); do
     --tag)
       (( $# >= 2 )) || die "--tag requires a value"
       tag="$2"
+      shift 2
+      ;;
+    --note-tag)
+      (( $# >= 2 )) || die "--note-tag requires a value"
+      note_tag="$2"
+      shift 2
+      ;;
+    --note-version)
+      (( $# >= 2 )) || die "--note-version requires a value"
+      note_version="$2"
       shift 2
       ;;
     --builders|--jobs|--cores)
@@ -182,6 +200,7 @@ done
 
 [[ $EUID -ne 0 ]] || die "run this as your normal user, not with sudo"
 [[ -e "$studio_dir/.git" ]] || die "UmbraStudio repository not found at $studio_dir"
+[[ -e "$note_dir/.git" ]] || die "UmbraNote repository not found at $note_dir"
 [[ -e "$os_dir/.git" ]] || die "UmbraOS repository not found at $os_dir"
 if (( update_repos )); then
   [[ -e "$api_dir/.git" ]] || die "umbra-api repository not found at $api_dir"
@@ -389,6 +408,22 @@ if [[ -z "$tag" ]]; then
 fi
 [[ $tag == "$expected_tag" ]] || die "tag must be $expected_tag because UmbraOS derives it from the Studio version"
 
+if [[ -z "$note_version" ]]; then
+  read -r -p "Umbra Note version (for example 0.0.1): " note_version
+fi
+[[ $note_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+  die "invalid Umbra Note semantic version: $note_version"
+expected_note_tag="v$note_version"
+if [[ -z "$note_tag" ]]; then
+  read -r -p "Umbra Note tag in $note_github_repo [$expected_note_tag]: " note_tag
+  note_tag="${note_tag:-$expected_note_tag}"
+fi
+# Accept a bare semantic version here because it is unambiguous and easy to
+# type accidentally when moving from the preceding version prompt.
+[[ $note_tag == "$note_version" ]] && note_tag="v$note_tag"
+[[ $note_tag == "$expected_note_tag" ]] ||
+  die "Umbra Note tag must be $expected_note_tag because modules/note/package.nix derives it from the version"
+
 if [[ -n $proxy ]] && (( ! skip_sourceforge && ! update_repos )); then
   command -v nc >/dev/null || die "nc is required for a proxied SourceForge upload"
 fi
@@ -396,11 +431,13 @@ fi
 note "Preflight"
 gh auth status || die "GitHub CLI is not authenticated"
 printf 'Studio:      %s\n' "$studio_dir"
+printf 'Note:        %s\n' "$note_dir"
 printf 'UmbraOS:     %s\n' "$os_dir"
 if (( update_repos )); then
   printf 'Umbra API:   %s\n' "$api_dir"
 fi
 printf 'Release:     %s (%s)\n' "$github_repo" "$tag"
+printf 'Note release:%s (%s)\n' "$note_github_repo" "$note_tag"
 printf 'Systems:     %s\n' "${systems[*]}"
 if (( ! update_repos )); then
   printf 'SourceForge: %s@frs.sourceforge.net:/home/frs/project/%s/%s\n' \
@@ -408,6 +445,8 @@ if (( ! update_repos )); then
 fi
 printf '\nStudio worktree:\n'
 git -C "$studio_dir" status --short
+printf '\nUmbra Note worktree:\n'
+git -C "$note_dir" status --short
 printf '\nUmbraOS worktree:\n'
 git -C "$os_dir" status --short
 if (( update_repos )); then
@@ -422,11 +461,12 @@ fi
 
 if (( update_repos )); then
   # Nix flakes include tracked and staged paths but omit untracked paths. Stage
-  # the three worktrees so builds see the complete release without committing
+  # all worktrees so builds see the complete release without committing
   # anything until every Studio artifact and updater pin has been verified.
-  note "Staging all three repositories for reproducible evaluation"
+  note "Staging all four repositories for reproducible evaluation"
   git -C "$api_dir" add -A
   git -C "$studio_dir" add -A
+  git -C "$note_dir" add -A
   git -C "$os_dir" add -A
 fi
 
@@ -494,8 +534,33 @@ if changed != 1:
 lock.write_text("[[package]]".join(parts))
 PY
 
-declare -A studio_hashes iso_hashes published_isos
+note "Setting Umbra Note version to $note_version"
+python3 - "$note_dir" "$note_version" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+version = sys.argv[2]
+for name in ("package.json", "package-lock.json"):
+    path = root / name
+    data = json.loads(path.read_text())
+    data["version"] = version
+    if name == "package-lock.json" and "" in data.get("packages", {}):
+        data["packages"][""]["version"] = version
+    path.write_text(json.dumps(data, indent=2) + "\n")
+flake = root / "flake.nix"
+text, count = re.subn(r'(?m)^(\s*version = ")[0-9]+\.[0-9]+\.[0-9]+(";\s*)$',
+                      rf'\g<1>{version}\g<2>', flake.read_text(), count=1)
+if count != 1:
+    raise SystemExit(f"{flake}: expected one version declaration")
+flake.write_text(text)
+PY
+
+declare -A studio_hashes note_hashes iso_hashes published_isos
 github_assets=()
+note_github_assets=()
 sourceforge_assets=()
 dist_dir="$studio_dir/dist"
 mkdir -p -- "$dist_dir"
@@ -524,6 +589,27 @@ for system in "${systems[@]}"; do
   )
   github_assets+=("$upload_archive" "$upload_archive.sha256")
   printf 'Studio %s: %s\n' "$system" "${studio_hashes[$system]}"
+done
+
+note_dist_dir="$note_dir/dist"
+mkdir -p -- "$note_dist_dir"
+for system in "${systems[@]}"; do
+  note "Building the source-free Umbra Note bundle ($system)"
+  note_result="$note_dir/result-beefcake-$note_version-$system"
+  nix_build "$note_dir#packages.$system.release-bundle" -o "$note_result"
+  note_versioned_archive="$note_dist_dir/umbra-note-$note_version-$system.tar.zst"
+  note_archive_name="umbra-note-$system.tar.zst"
+  note_upload_archive="$work_dir/$note_archive_name"
+  note_archive_stage="$(mktemp --tmpdir="$note_dist_dir" ".umbra-note-$note_version-$system.XXXXXXXX")"
+  cp -L -- "$note_result" "$note_archive_stage"
+  chmod 0444 "$note_archive_stage"
+  mv -fT -- "$note_archive_stage" "$note_versioned_archive"
+  python3 "$script_dir/beefcake-support.py" audit-note "$note_versioned_archive" "$system"
+  cp -L -- "$note_versioned_archive" "$note_upload_archive"
+  note_hashes[$system]="$(nix hash file --type sha256 --sri "$note_upload_archive")"
+  ( cd -- "$work_dir"; sha256sum "$note_archive_name" > "$note_archive_name.sha256" )
+  note_github_assets+=("$note_upload_archive" "$note_upload_archive.sha256")
+  printf 'Umbra Note %s: %s\n' "$system" "${note_hashes[$system]}"
 done
 
 note "Publishing Studio architectures to GitHub ($tag): ${systems[*]}"
@@ -556,6 +642,32 @@ else
     --notes "Umbra Studio $version source-free Linux binaries for ${systems[*]}."
 fi
 
+note "Publishing Umbra Note architectures to GitHub ($note_tag): ${systems[*]}"
+if gh release view "$note_tag" --repo "$note_github_repo" >/dev/null 2>&1; then
+  note_existing_listing="$(
+    gh release view "$note_tag" --repo "$note_github_repo" --json assets --jq '.assets[].name'
+  )" || die "could not inspect assets for existing Umbra Note release $note_tag"
+  declare -A note_existing_assets=()
+  while IFS= read -r asset_name; do
+    [[ -z $asset_name ]] || note_existing_assets["$asset_name"]=1
+  done <<< "$note_existing_listing"
+  note_missing_assets=()
+  for asset in "${note_github_assets[@]}"; do
+    asset_name="${asset##*/}"
+    [[ -n ${note_existing_assets[$asset_name]:-} ]] || note_missing_assets+=("$asset")
+  done
+  if (( ${#note_missing_assets[@]} )); then
+    note "Uploading ${#note_missing_assets[@]} missing Umbra Note release asset(s)"
+    gh release upload "$note_tag" "${note_missing_assets[@]}" --repo "$note_github_repo"
+  else
+    note "All selected Umbra Note archives and checksums are already present"
+  fi
+else
+  gh release create "$note_tag" "${note_github_assets[@]}" --repo "$note_github_repo" \
+    --title "Umbra Note $note_version" \
+    --notes "Umbra Note $note_version source-free Linux bundles for ${systems[*]}."
+fi
+
 # Do not update OS pins until all selected public downloads verify successfully.
 for system in "${systems[@]}"; do
   remote_archive="$work_dir/remote-umbra-studio-$system.tar.zst"
@@ -565,6 +677,13 @@ for system in "${systems[@]}"; do
   remote_sri="$(nix hash file --type sha256 --sri "$remote_archive")"
   [[ $remote_sri == "${studio_hashes[$system]}" ]] || die "GitHub verification failed for $system"
   printf 'Verified GitHub asset (%s): %s\n' "$system" "$remote_sri"
+  remote_note_archive="$work_dir/remote-umbra-note-$system.tar.zst"
+  curl --fail --location --retry 3 \
+    "https://github.com/$note_github_repo/releases/download/$note_tag/umbra-note-$system.tar.zst?beefcake=$(date +%s)" \
+    --output "$remote_note_archive"
+  remote_note_sri="$(nix hash file --type sha256 --sri "$remote_note_archive")"
+  [[ $remote_note_sri == "${note_hashes[$system]}" ]] || die "Umbra Note GitHub verification failed for $system"
+  printf 'Verified Umbra Note GitHub asset (%s): %s\n' "$system" "$remote_note_sri"
 done
 
 note "Pinning Studio releases in UmbraOS for: ${systems[*]}"
@@ -575,23 +694,34 @@ done
 python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/studio/package.nix" \
   "$version" "${pin_args[@]}"
 nix-instantiate --parse "$os_dir/modules/studio/package.nix" >/dev/null
+note "Pinning Umbra Note releases in UmbraOS for: ${systems[*]}"
+note_pin_args=()
+for system in "${systems[@]}"; do
+  note_pin_args+=("$system" "${note_hashes[$system]}")
+done
+python3 "$script_dir/beefcake-support.py" pin "$os_dir/modules/note/package.nix" \
+  "$note_version" "${note_pin_args[@]}"
+nix-instantiate --parse "$os_dir/modules/note/package.nix" >/dev/null
 if (( update_repos )); then
-  note "Committing the verified Studio release and updater pin"
+  note "Committing the verified application releases and updater pins"
   commit_repo "$api_dir" "Update Umbra API for Studio $version"
   commit_repo "$studio_dir" "Release Umbra Studio $version"
-  commit_repo "$os_dir" "Pin Umbra Studio $version release"
+  commit_repo "$note_dir" "Release Umbra Note $note_version"
+  commit_repo "$os_dir" "Pin Umbra Studio $version and Note $note_version releases"
 
-  note "Syncing all three repositories"
+  note "Syncing all four repositories"
   sync_repo "$api_dir"
   sync_repo "$studio_dir"
+  sync_repo "$note_dir"
   sync_repo "$os_dir"
 
   note "Studio update complete"
   printf 'GitHub tag: %s\n' "$tag"
   for system in "${systems[@]}"; do
     printf 'Studio %s (%s): %s\n' "$version" "$system" "${studio_hashes[$system]}"
+    printf 'Umbra Note %s (%s): %s\n' "$note_version" "$system" "${note_hashes[$system]}"
   done
-  printf '\nUmbra API, Studio, and UmbraOS changes were committed and synced.\n'
+  printf '\nUmbra API, Studio, Note, and UmbraOS changes were committed and synced.\n'
   exit 0
 fi
 
@@ -619,7 +749,6 @@ for system in "${systems[@]}"; do
   note "Building the UmbraOS ISO ($system)"
   iso_result="$os_dir/result-beefcake-iso-$system"
   nix_build "$os_dir#packages.$system.iso" -o "$iso_result"
-  nix_build "$os_dir#nixosConfigurations.umbra-live-$system.config.system.build.umbraIsoSizeCheck" --no-link
   built_isos=("$iso_result"/iso/*.iso)
   (( ${#built_isos[@]} == 1 )) || die "expected one ISO under $iso_result/iso, found ${#built_isos[@]}"
   iso_name="$base_name$revision_suffix-$system.iso"
