@@ -34,6 +34,11 @@ in {
       # packages are not silently admitted into UmbraOS.
       nixpkgs.config.allowUnfreePredicate = pkg:
         lib.getName pkg == "umbra-studio-bin";
+
+      # Electron requires Chromium's privileged sandbox helper when user
+      # namespaces are unavailable. NixOS installs and owns this setuid wrapper
+      # at /run/wrappers/bin/__chromium-suid-sandbox.
+      security.chromiumSuidSandbox.enable = true;
     }
     (lib.mkIf (!isLive) {
       # Studio launches unprivileged QEMU/KVM guests. Membership grants access

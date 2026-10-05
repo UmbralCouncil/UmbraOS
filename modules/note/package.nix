@@ -7,8 +7,8 @@
 
 let
   release = {
-    x86_64-linux = { version = "0.0.2"; hash = "sha256-s/LMVlpZKgvz9TJG0CB9PVODvHLYmTlaNkXjba2FNXA="; };
-    aarch64-linux = { version = "0.0.2"; hash = "sha256-hISZwRW5WSKflZ9+qOeXuuOf81UFYNFC/NNffpPibuw="; };
+    x86_64-linux = { version = "0.0.3"; hash = "sha256-jUH/bh9lktKWdyZdjCrSPPgRWggqTTr4QHr32otDcz8="; };
+    aarch64-linux = { version = "0.0.3"; hash = "sha256-zFDQVP21Fjjry1qs80wlan5VxC3A81HjuYvV1v2+y0k="; };
   }.${stdenv.hostPlatform.system};
 in stdenv.mkDerivation (finalAttrs: {
   pname = "umbra-note-bin";
@@ -34,6 +34,7 @@ in stdenv.mkDerivation (finalAttrs: {
     # an interpreter from the producer's Nix store can never leak through.
     sed -i '1c #!/bin/sh' $out/bin/umbra-note
     wrapProgram $out/lib/umbra-note/electron/electron \
+      --set CHROME_DEVEL_SANDBOX /run/wrappers/bin/__chromium-suid-sandbox \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath finalAttrs.buildInputs}"
     runHook postInstall
   '';
