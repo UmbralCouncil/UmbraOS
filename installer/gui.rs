@@ -9,14 +9,14 @@ use std::thread;
 
 const SOCKET: &str = "/run/umbra-installer/backend.sock";
 const LOG: &str = "/run/umbra-installer/install.log";
-const INK: Color32 = Color32::from_rgb(7, 16, 51);
-const CARD: Color32 = Color32::from_rgb(12, 25, 70);
-const CARD_RAISED: Color32 = Color32::from_rgb(17, 33, 82);
-const ACCENT: Color32 = Color32::from_rgb(157, 124, 255);
-const BLUE: Color32 = Color32::from_rgb(80, 183, 245);
-const MUTED: Color32 = Color32::from_rgb(164, 174, 205);
-const BORDER: Color32 = Color32::from_rgb(48, 65, 120);
-const DANGER: Color32 = Color32::from_rgb(255, 145, 166);
+const INK: Color32 = Color32::from_rgb(7, 7, 7);
+const CARD: Color32 = Color32::from_rgb(16, 14, 19);
+const CARD_RAISED: Color32 = Color32::from_rgb(24, 20, 30);
+const ACCENT: Color32 = Color32::from_rgb(139, 92, 246);
+const BLUE: Color32 = Color32::from_rgb(185, 161, 255);
+const MUTED: Color32 = Color32::from_rgb(150, 140, 164);
+const BORDER: Color32 = Color32::from_rgb(41, 35, 48);
+const DANGER: Color32 = Color32::from_rgb(255, 118, 146);
 const KEYBOARD_LAYOUTS: [(&str, &str); 12] = [
     ("us", "English (US)"), ("gb", "English (UK)"), ("de", "German"),
     ("fr", "French"), ("es", "Spanish"), ("it", "Italian"),
@@ -296,7 +296,7 @@ impl Installer {
 
     fn heading(ui: &mut egui::Ui, icon: UiIcon, kicker: &str, title: &str) {
         ui.horizontal(|ui| {
-            egui::Frame::new().fill(Color32::from_rgb(31, 45, 100)).corner_radius(10).inner_margin(10).show(ui, |ui| Self::icon(ui, icon, ACCENT, 28.0));
+            egui::Frame::new().fill(Color32::from_rgb(28, 21, 37)).corner_radius(10).inner_margin(10).show(ui, |ui| Self::icon(ui, icon, ACCENT, 28.0));
             ui.vertical(|ui| {
                 ui.label(RichText::new(kicker).strong().size(11.0).color(BLUE));
                 ui.label(RichText::new(title).size(28.0).strong().color(Color32::WHITE));
@@ -324,7 +324,7 @@ impl Installer {
                 let color = if reached { ACCENT } else { MUTED };
                 let marker = if index < self.step { "✓".to_owned() } else { (index + 1).to_string() };
                 egui::Frame::new()
-                    .fill(if active { Color32::from_rgb(65, 48, 125) } else { CARD })
+                    .fill(if active { Color32::from_rgb(42, 30, 55) } else { CARD })
                     .stroke(egui::Stroke::new(1.0, if reached { ACCENT } else { BORDER }))
                     .corner_radius(egui::CornerRadius::same(20))
                     .inner_margin(egui::Margin::symmetric(10, 5))
@@ -402,8 +402,8 @@ impl Installer {
             }
         });
         ui.add_space(14.0);
-        egui::Frame::new().fill(Color32::from_rgb(18, 43, 74)).corner_radius(8).inner_margin(12).show(ui, |ui| {
-            ui.label(RichText::new("ⓘ  An internet connection is required. Ethernet works automatically when available.").color(Color32::from_rgb(178, 220, 255)));
+        egui::Frame::new().fill(Color32::from_rgb(28, 21, 37)).corner_radius(8).inner_margin(12).show(ui, |ui| {
+            ui.label(RichText::new("ⓘ  An internet connection is required. Ethernet works automatically when available.").color(BLUE));
         });
     }
 
@@ -463,10 +463,10 @@ impl Installer {
         ui.add(egui::TextEdit::singleline(&mut self.confirmation)).labelled_by(confirmation_label.id);
         if self.installing || !self.logs.is_empty() {
             ui.add_space(12.0);
-            egui::Frame::new().fill(Color32::from_rgb(3, 8, 27)).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
+            egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 ui.label(RichText::new("●  LIVE INSTALL LOG    /run/umbra-installer/install.log").monospace().size(11.0).color(BLUE));
                 ui.separator();
-                egui::ScrollArea::vertical().stick_to_bottom(true).max_height(220.0).show(ui, |ui| { for line in &self.logs { ui.label(RichText::new(line).monospace().small().color(Color32::from_rgb(195, 205, 225))); } });
+                egui::ScrollArea::vertical().stick_to_bottom(true).max_height(220.0).show(ui, |ui| { for line in &self.logs { ui.label(RichText::new(line).monospace().small().color(Color32::from_rgb(216, 206, 232))); } });
             });
         }
         if !self.result.is_empty() { ui.separator(); ui.label(&self.result); }
@@ -498,7 +498,7 @@ impl eframe::App for Installer {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_events();
         egui::TopBottomPanel::top("header")
-            .frame(egui::Frame::new().fill(Color32::from_rgb(5, 12, 39)).inner_margin(egui::Margin::symmetric(24, 14)).stroke(egui::Stroke::new(1.0, BORDER)))
+            .frame(egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).inner_margin(egui::Margin::symmetric(24, 14)).stroke(egui::Stroke::new(1.0, BORDER)))
             .show(context, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("UmbraOS").size(22.0).strong().color(Color32::WHITE));
@@ -509,7 +509,7 @@ impl eframe::App for Installer {
                 self.step_rail(ui);
             });
         egui::TopBottomPanel::bottom("footer")
-            .frame(egui::Frame::new().fill(Color32::from_rgb(5, 12, 39)).inner_margin(egui::Margin::symmetric(24, 12)).stroke(egui::Stroke::new(1.0, BORDER)))
+            .frame(egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).inner_margin(egui::Margin::symmetric(24, 12)).stroke(egui::Stroke::new(1.0, BORDER)))
             .show(context, |ui| { ui.horizontal(|ui| {
             if ui.add_enabled(self.step > 0 && !self.busy, egui::Button::new("←  Back").min_size(egui::vec2(100.0, 38.0))).clicked() { self.step -= 1; }
             if self.busy { ui.spinner(); ui.label(RichText::new(if self.installing { "Installing UmbraOS…" } else { "Working…" }).color(MUTED)); }
@@ -554,16 +554,16 @@ fn main() -> eframe::Result {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = INK;
         visuals.window_fill = CARD;
-        visuals.extreme_bg_color = Color32::from_rgb(3, 8, 27);
+        visuals.extreme_bg_color = INK;
         visuals.faint_bg_color = CARD_RAISED;
-        visuals.selection.bg_fill = Color32::from_rgb(82, 62, 155);
+        visuals.selection.bg_fill = Color32::from_rgb(70, 44, 112);
         visuals.selection.stroke.color = Color32::WHITE;
         visuals.widgets.inactive.bg_fill = CARD_RAISED;
         visuals.widgets.inactive.weak_bg_fill = CARD_RAISED;
         visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(40, 59, 119);
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(31, 25, 39);
         visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, BLUE);
-        visuals.widgets.active.bg_fill = Color32::from_rgb(83, 61, 160);
+        visuals.widgets.active.bg_fill = Color32::from_rgb(74, 47, 104);
         visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT);
         creation.egui_ctx.set_visuals(visuals);
         let mut style = (*creation.egui_ctx.style()).clone();

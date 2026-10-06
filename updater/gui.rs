@@ -7,14 +7,14 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 const SOCKET: &str = "/run/umbra-update/backend.sock";
-const INK: Color32 = Color32::from_rgb(7, 16, 51);
-const CARD: Color32 = Color32::from_rgb(12, 25, 70);
-const CARD_RAISED: Color32 = Color32::from_rgb(17, 33, 82);
-const ACCENT: Color32 = Color32::from_rgb(157, 124, 255);
-const BLUE: Color32 = Color32::from_rgb(80, 183, 245);
-const MUTED: Color32 = Color32::from_rgb(164, 174, 205);
-const BORDER: Color32 = Color32::from_rgb(48, 65, 120);
-const DANGER: Color32 = Color32::from_rgb(255, 145, 166);
+const INK: Color32 = Color32::from_rgb(7, 7, 7);
+const CARD: Color32 = Color32::from_rgb(16, 14, 19);
+const CARD_RAISED: Color32 = Color32::from_rgb(24, 20, 30);
+const ACCENT: Color32 = Color32::from_rgb(139, 92, 246);
+const BLUE: Color32 = Color32::from_rgb(185, 161, 255);
+const MUTED: Color32 = Color32::from_rgb(150, 140, 164);
+const BORDER: Color32 = Color32::from_rgb(41, 35, 48);
+const DANGER: Color32 = Color32::from_rgb(255, 118, 146);
 
 #[derive(Clone, Default, Deserialize)]
 struct UpdateStatus {
@@ -260,9 +260,9 @@ fn main() -> eframe::Result<()> {
             visuals.window_fill = INK;
             visuals.widgets.inactive.bg_fill = CARD_RAISED;
             visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, BORDER);
-            visuals.widgets.hovered.bg_fill = Color32::from_rgb(28, 47, 104);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(31, 25, 39);
             visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, BLUE);
-            visuals.widgets.active.bg_fill = Color32::from_rgb(65, 48, 125);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(74, 47, 104);
             visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
             creation.egui_ctx.set_visuals(visuals);
             Ok(Box::new(Updater::new(creation.egui_ctx.clone())))
