@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 const SOCKET: &str = "/run/umbra-update/backend.sock";
 const INK: Color32 = Color32::from_rgb(7, 7, 7);
@@ -43,6 +44,7 @@ struct RpcError {
 
 enum Event {
     Status(Result<UpdateStatus, RpcError>),
+    Progress(Result<UpdateStatus, RpcError>),
     Checked(Result<UpdateStatus, RpcError>),
     Installed(Result<UpdateStatus, RpcError>),
     Proxy(Result<UpdateStatus, RpcError>),
@@ -99,6 +101,8 @@ struct Updater {
     message: String,
     message_is_error: bool,
     busy: bool,
+    status_poll_pending: bool,
+    last_status_poll: Instant,
     tx: Sender<Event>,
     rx: Receiver<Event>,
 }
@@ -119,6 +123,8 @@ impl Updater {
             message: String::new(),
             message_is_error: false,
             busy: false,
+            status_poll_pending: false,
+            last_status_poll: Instant::now(),
             tx,
             rx,
         }
@@ -143,9 +149,19 @@ impl Updater {
 
     fn handle_events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
+            if let Event::Progress(result) = event {
+                self.status_poll_pending = false;
+                if self.busy {
+                    if let Ok(status) = result {
+                        self.status = status;
+                    }
+                }
+                continue;
+            }
             self.busy = false;
             let (result, success) = match event {
                 Event::Status(result) => (result, "Status refreshed"),
+                Event::Progress(_) => unreachable!(),
                 Event::Checked(result) => (result, "Update check complete"),
                 Event::Installed(result) => (result, "UmbraOS update complete"),
                 Event::Proxy(result) => (result, "Temporary proxy configuration applied"),
@@ -177,6 +193,20 @@ impl Updater {
         spawn_rpc(action, extra, self.tx.clone(), wrap);
     }
 
+    fn poll_progress(&mut self) {
+        if !self.busy || self.status_poll_pending || self.last_status_poll.elapsed() < Duration::from_millis(600) {
+            return;
+        }
+        self.status_poll_pending = true;
+        self.last_status_poll = Instant::now();
+        spawn_rpc(
+            "GET_UPDATE_STATUS",
+            json!({}),
+            self.tx.clone(),
+            Event::Progress,
+        );
+    }
+
     fn state_title(&self) -> String {
         match self.status.state.as_str() {
             "" | "idle" => "Ready to check".into(),
@@ -201,13 +231,21 @@ impl Updater {
             .min_size(egui::vec2(148.0, 40.0))
     }
 
-    fn status_mark(ui: &mut egui::Ui, color: Color32, busy: bool, complete: bool) {
+    fn status_mark(ui: &mut egui::Ui, color: Color32, busy: bool, complete: bool, nix_flake: bool) {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
         let painter = ui.painter();
         let stroke = egui::Stroke::new(2.0_f32, color);
         if busy {
             painter.circle_stroke(rect.center(), 7.0, stroke);
             painter.line_segment([rect.center(), egui::pos2(rect.right() - 1.0, rect.top() + 4.0)], stroke);
+        } else if complete && nix_flake {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "❄",
+                egui::FontId::proportional(16.0),
+                color,
+            );
         } else if complete {
             painter.line_segment([egui::pos2(rect.left() + 2.0, rect.center().y), egui::pos2(rect.left() + 7.0, rect.bottom() - 3.0)], stroke);
             painter.line_segment([egui::pos2(rect.left() + 7.0, rect.bottom() - 3.0), egui::pos2(rect.right() - 1.0, rect.top() + 2.0)], stroke);
@@ -226,6 +264,7 @@ impl eframe::App for Updater {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_events();
         if self.busy {
+            self.poll_progress();
             context.request_repaint_after(std::time::Duration::from_millis(250));
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(INK).inner_margin(0)).show(context, |ui| {
@@ -260,7 +299,7 @@ impl eframe::App for Updater {
                             ui.horizontal(|ui| {
                                 let color = self.state_color();
                                 egui::Frame::new().fill(color.gamma_multiply(0.13)).stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.65))).corner_radius(24).inner_margin(11).show(ui, |ui| {
-                                    Self::status_mark(ui, color, self.busy, self.status.state == "up_to_date");
+                                    Self::status_mark(ui, color, self.busy, self.status.state == "up_to_date", true);
                                 });
                                 ui.add_space(5.0);
                                 ui.vertical(|ui| {
@@ -334,7 +373,7 @@ impl eframe::App for Updater {
                             let color = if self.message_is_error { DANGER } else { SUCCESS };
                             egui::Frame::new().fill(color.gamma_multiply(0.09)).stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45))).corner_radius(8).inner_margin(12).show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    Self::status_mark(ui, color, false, !self.message_is_error);
+                                    Self::status_mark(ui, color, false, !self.message_is_error, false);
                                     ui.label(RichText::new(&self.message).color(color));
                                 });
                             });
