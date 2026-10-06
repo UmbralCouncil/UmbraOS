@@ -200,6 +200,26 @@ impl Updater {
             .corner_radius(8)
             .min_size(egui::vec2(148.0, 40.0))
     }
+
+    fn status_mark(ui: &mut egui::Ui, color: Color32, busy: bool, complete: bool) {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+        let painter = ui.painter();
+        let stroke = egui::Stroke::new(2.0_f32, color);
+        if busy {
+            painter.circle_stroke(rect.center(), 7.0, stroke);
+            painter.line_segment([rect.center(), egui::pos2(rect.right() - 1.0, rect.top() + 4.0)], stroke);
+        } else if complete {
+            painter.line_segment([egui::pos2(rect.left() + 2.0, rect.center().y), egui::pos2(rect.left() + 7.0, rect.bottom() - 3.0)], stroke);
+            painter.line_segment([egui::pos2(rect.left() + 7.0, rect.bottom() - 3.0), egui::pos2(rect.right() - 1.0, rect.top() + 2.0)], stroke);
+        } else {
+            painter.circle_filled(rect.center(), 4.0, color);
+        }
+    }
+
+    fn connection_mark(ui: &mut egui::Ui, color: Color32) {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(), 3.0, color);
+    }
 }
 
 impl eframe::App for Updater {
@@ -211,10 +231,6 @@ impl eframe::App for Updater {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(INK).inner_margin(0)).show(context, |ui| {
             egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).stroke(egui::Stroke::new(1.0_f32, BORDER)).inner_margin(egui::Margin::symmetric(30, 17)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    egui::Frame::new().fill(Color32::from_rgb(37, 27, 50)).stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(73, 52, 94))).corner_radius(10).inner_margin(10).show(ui, |ui| {
-                        ui.label(RichText::new("U").color(BLUE).size(18.0).strong());
-                    });
-                    ui.add_space(4.0);
                     ui.vertical(|ui| {
                         ui.label(RichText::new("UmbraOS").color(Color32::WHITE).size(17.0).strong());
                         ui.label(RichText::new("SYSTEM UPDATE").color(BLUE).size(9.0).strong());
@@ -244,7 +260,7 @@ impl eframe::App for Updater {
                             ui.horizontal(|ui| {
                                 let color = self.state_color();
                                 egui::Frame::new().fill(color.gamma_multiply(0.13)).stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.65))).corner_radius(24).inner_margin(11).show(ui, |ui| {
-                                    ui.label(RichText::new(if self.busy { "↻" } else { "●" }).color(color).size(17.0).strong());
+                                    Self::status_mark(ui, color, self.busy, self.status.state == "up_to_date");
                                 });
                                 ui.add_space(5.0);
                                 ui.vertical(|ui| {
@@ -287,8 +303,9 @@ impl eframe::App for Updater {
                                     ui.label(RichText::new("Optional, session-only routing for restricted networks.").small().color(MUTED));
                                 });
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let (label, color) = if self.status.proxy_configured { ("●  Proxy active", ACCENT) } else { ("●  Direct connection", SUCCESS) };
+                                    let (label, color) = if self.status.proxy_configured { ("Proxy active", ACCENT) } else { ("Direct connection", SUCCESS) };
                                     ui.label(RichText::new(label).color(color).small().strong());
+                                    Self::connection_mark(ui, color);
                                 });
                             });
                             ui.add_space(13.0);
@@ -316,7 +333,10 @@ impl eframe::App for Updater {
                             ui.add_space(14.0);
                             let color = if self.message_is_error { DANGER } else { SUCCESS };
                             egui::Frame::new().fill(color.gamma_multiply(0.09)).stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.45))).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                                ui.label(RichText::new(format!("{}  {}", if self.message_is_error { "!" } else { "✓" }, self.message)).color(color));
+                                ui.horizontal(|ui| {
+                                    Self::status_mark(ui, color, false, !self.message_is_error);
+                                    ui.label(RichText::new(&self.message).color(color));
+                                });
                             });
                         }
                         ui.add_space(28.0);
