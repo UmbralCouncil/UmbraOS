@@ -7,7 +7,7 @@
 
 let
   release = {
-    x86_64-linux = { version = "0.0.3"; hash = "sha256-jUH/bh9lktKWdyZdjCrSPPgRWggqTTr4QHr32otDcz8="; };
+    x86_64-linux = { version = "0.0.4"; hash = "sha256-gb6KnUTGgV9FrHEZjHYnza2TY6F3kd6y3AiiTLxq60E="; };
     aarch64-linux = { version = "0.0.3"; hash = "sha256-zFDQVP21Fjjry1qs80wlan5VxC3A81HjuYvV1v2+y0k="; };
   }.${stdenv.hostPlatform.system};
 in stdenv.mkDerivation (finalAttrs: {

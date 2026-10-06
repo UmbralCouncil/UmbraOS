@@ -24,8 +24,8 @@
 let
   release = {
     x86_64-linux = {
-      version = "0.2.2";
-      hash = "sha256-bh/UFGzhv3jvx1kqwWl2tkru1AaRDQwIWil9RsA1fts=";
+      version = "0.2.3";
+      hash = "sha256-P9VPWwq1bAXHgTHSpcCO1Mgr4Pp5a73zPdK8G0KWv3E=";
     };
     aarch64-linux = {
       version = "0.2.2";
