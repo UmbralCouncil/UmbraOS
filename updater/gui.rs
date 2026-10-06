@@ -336,7 +336,8 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("UmbraOS Update")
             .with_inner_size([980.0, 720.0])
-            .with_min_inner_size([760.0, 600.0]),
+            .with_min_inner_size([760.0, 600.0])
+            .with_fullscreen(true),
         ..Default::default()
     };
     eframe::run_native(
