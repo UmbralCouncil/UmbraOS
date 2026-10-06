@@ -17,6 +17,25 @@ const BLUE: Color32 = Color32::from_rgb(185, 161, 255);
 const MUTED: Color32 = Color32::from_rgb(150, 140, 164);
 const BORDER: Color32 = Color32::from_rgb(41, 35, 48);
 const DANGER: Color32 = Color32::from_rgb(255, 118, 146);
+const APP_ICON: &[u8] = include_bytes!("../assets/install.png");
+
+fn decoded_icon() -> image::RgbaImage {
+    image::load_from_memory(APP_ICON)
+        .expect("embedded Umbra icon must be a valid PNG")
+        .into_rgba8()
+}
+
+fn window_icon() -> egui::IconData {
+    let image = decoded_icon();
+    let (width, height) = image.dimensions();
+    egui::IconData { rgba: image.into_raw(), width, height }
+}
+
+fn icon_texture(context: &egui::Context) -> egui::TextureHandle {
+    let image = decoded_icon();
+    let size = [image.width() as usize, image.height() as usize];
+    context.load_texture("umbra-system-mark", egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()), egui::TextureOptions::LINEAR)
+}
 const KEYBOARD_LAYOUTS: [(&str, &str); 12] = [
     ("us", "English (US)"), ("gb", "English (UK)"), ("de", "German"),
     ("fr", "French"), ("es", "Spanish"), ("it", "Italian"),
@@ -89,6 +108,7 @@ enum Event {
 }
 
 struct Installer {
+    icon: egui::TextureHandle,
     token: String,
     step: usize,
     mode: InstallMode,
@@ -241,6 +261,7 @@ impl Installer {
             }
         });
         let mut app = Self {
+            icon: icon_texture(&context),
             token, step: 0, mode: InstallMode::Erase, disks: vec![], target_disk: String::new(),
             root: String::new(), esp: String::new(), networks: vec![], wifi_ssid: String::new(),
             wifi_password: String::new(), wifi_status: "Scanning…".into(), internet_connected: false,
@@ -501,6 +522,8 @@ impl eframe::App for Installer {
             .frame(egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).inner_margin(egui::Margin::symmetric(24, 14)).stroke(egui::Stroke::new(1.0, BORDER)))
             .show(context, |ui| {
                 ui.horizontal(|ui| {
+                    ui.add(egui::Image::new(&self.icon).fit_to_exact_size(egui::vec2(34.0, 34.0)));
+                    ui.add_space(3.0);
                     ui.label(RichText::new("UmbraOS").size(22.0).strong().color(Color32::WHITE));
                     ui.label(RichText::new("INSTALLER").size(10.0).strong().color(BLUE));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { ui.label(RichText::new(format!("STEP {} OF 5", self.step + 1)).small().color(MUTED)); });
@@ -549,7 +572,7 @@ fn main() -> eframe::Result {
     std::io::stdin().read_line(&mut token).expect("could not read installer capability");
     let token = token.trim().to_owned();
     assert!(!token.is_empty(), "installer capability was empty");
-    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("Install UmbraOS").with_inner_size([920.0, 680.0]).with_min_inner_size([800.0, 560.0]), ..Default::default() };
+    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("Install UmbraOS").with_icon(window_icon()).with_inner_size([920.0, 680.0]).with_min_inner_size([800.0, 560.0]), ..Default::default() };
     eframe::run_native("UmbraOS Installer", options, Box::new(move |creation| {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = INK;

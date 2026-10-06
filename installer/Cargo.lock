@@ -2721,6 +2721,7 @@ name = "umbra-installer-ui"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "image",
  "serde",
  "serde_json",
 ]

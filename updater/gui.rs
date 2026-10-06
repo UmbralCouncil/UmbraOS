@@ -16,6 +16,25 @@ const MUTED: Color32 = Color32::from_rgb(150, 140, 164);
 const BORDER: Color32 = Color32::from_rgb(41, 35, 48);
 const SUCCESS: Color32 = Color32::from_rgb(99, 217, 162);
 const DANGER: Color32 = Color32::from_rgb(255, 118, 146);
+const APP_ICON: &[u8] = include_bytes!("../assets/install.png");
+
+fn decoded_icon() -> image::RgbaImage {
+    image::load_from_memory(APP_ICON)
+        .expect("embedded Umbra icon must be a valid PNG")
+        .into_rgba8()
+}
+
+fn window_icon() -> egui::IconData {
+    let image = decoded_icon();
+    let (width, height) = image.dimensions();
+    egui::IconData { rgba: image.into_raw(), width, height }
+}
+
+fn icon_texture(context: &egui::Context) -> egui::TextureHandle {
+    let image = decoded_icon();
+    let size = [image.width() as usize, image.height() as usize];
+    context.load_texture("umbra-system-mark", egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()), egui::TextureOptions::LINEAR)
+}
 
 #[derive(Clone, Default, Deserialize)]
 struct UpdateStatus {
@@ -94,6 +113,7 @@ fn spawn_rpc(
 }
 
 struct Updater {
+    icon: egui::TextureHandle,
     status: UpdateStatus,
     proxy_url: String,
     message: String,
@@ -114,6 +134,7 @@ impl Updater {
             repaint.request_repaint();
         });
         Self {
+            icon: icon_texture(&context),
             status: UpdateStatus::default(),
             proxy_url: String::new(),
             message: String::new(),
@@ -211,8 +232,8 @@ impl eframe::App for Updater {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(INK).inner_margin(0)).show(context, |ui| {
             egui::Frame::new().fill(Color32::from_rgb(12, 10, 15)).stroke(egui::Stroke::new(1.0_f32, BORDER)).inner_margin(egui::Margin::symmetric(30, 17)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    egui::Frame::new().fill(Color32::from_rgb(37, 27, 50)).stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(73, 52, 94))).corner_radius(10).inner_margin(10).show(ui, |ui| {
-                        ui.label(RichText::new("U").color(BLUE).size(18.0).strong());
+                    egui::Frame::new().fill(Color32::from_rgb(37, 27, 50)).stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(73, 52, 94))).corner_radius(10).inner_margin(7).show(ui, |ui| {
+                        ui.add(egui::Image::new(&self.icon).fit_to_exact_size(egui::vec2(28.0, 28.0)));
                     });
                     ui.add_space(4.0);
                     ui.vertical(|ui| {
@@ -335,6 +356,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("UmbraOS Update")
+            .with_icon(window_icon())
             .with_inner_size([980.0, 720.0])
             .with_min_inner_size([760.0, 600.0])
             .with_fullscreen(true),
